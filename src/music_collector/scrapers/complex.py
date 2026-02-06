@@ -1,3 +1,11 @@
+"""Complex 擷取器（HTML）。
+
+來源：complex.com — 美國嘻哈、R&B、流行文化媒體。
+擷取方式：嘗試多個 URL（/music、/tag/best-new-music、/pigeons-and-planes），
+從文章標題中提取曲目資訊。
+注意：Complex 為 JS 重度渲染網站，擷取結果可能受限。
+"""
+
 import logging
 import re
 
@@ -8,7 +16,7 @@ from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
 
-# Complex / Pigeons & Planes — try multiple URL patterns
+# 嘗試多個 URL 模式
 URLS = [
     "https://www.complex.com/music",
     "https://www.complex.com/tag/best-new-music",
@@ -35,7 +43,7 @@ class ComplexScraper(BaseScraper):
                 if not text or len(text) < 5:
                     continue
 
-                # Strip common prefixes
+                # 移除常見前綴
                 for prefix in [
                     "Best New Music This Week:",
                     "Best New Music:",
@@ -47,7 +55,7 @@ class ComplexScraper(BaseScraper):
                     if text.lower().startswith(prefix.lower()):
                         text = text[len(prefix):].strip()
 
-                # Try to find quoted song title
+                # 嘗試從引號中提取曲名
                 m = re.search(r"['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+", text)
                 if m:
                     title = m.group(1).strip()
@@ -56,6 +64,7 @@ class ComplexScraper(BaseScraper):
                         tracks.append(Track(artist=artist, title=title, source=self.name))
                         continue
 
+                # 備選：標準「Artist – Title」格式
                 parsed = self.parse_artist_title(text)
                 if parsed:
                     artist, title = parsed
@@ -64,5 +73,5 @@ class ComplexScraper(BaseScraper):
             if tracks:
                 break
 
-        logger.info(f"Complex: found {len(tracks)} tracks")
+        logger.info(f"Complex：找到 {len(tracks)} 首曲目")
         return tracks

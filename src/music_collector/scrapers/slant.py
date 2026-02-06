@@ -1,3 +1,11 @@
+"""Slant Magazine 擷取器（HTML）。
+
+來源：slantmagazine.com — 美國影音評論雜誌，以嚴謹的樂評著稱。
+擷取方式：解析音樂分類頁面的樂評標題。
+標題格式：「Artist 'Album/Track Title' Review: Description」
+  例如：「FKA twigs 'Eusexua Afterglow' Review — Basking in the Pleasure Principle」
+"""
+
 import logging
 import re
 
@@ -8,7 +16,7 @@ from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
 
-# Try multiple URL patterns — Slant may block some
+# 嘗試多個 URL 模式（Slant 可能對部分路徑啟用反爬蟲）
 URLS = [
     "https://www.slantmagazine.com/music/",
     "https://www.slantmagazine.com/category/music/",
@@ -29,11 +37,10 @@ class SlantScraper(BaseScraper):
 
             soup = BeautifulSoup(resp.text, "lxml")
 
-            # Slant reviews: "Artist 'Album Title' Review: Description"
             for heading in soup.select("h2 a, h3 a, .post-title a, article h2, .entry-title a")[:MAX_TRACKS_PER_SOURCE]:
                 text = self.clean_text(heading.get_text())
 
-                # Skip non-music content
+                # 略過非音樂內容
                 if any(skip in text.lower() for skip in [
                     "best of", "worst of", "ranked", "interview", "the 25", "film", "tv",
                 ]):
@@ -47,17 +54,13 @@ class SlantScraper(BaseScraper):
             if tracks:
                 break
 
-        logger.info(f"Slant: found {len(tracks)} tracks")
+        logger.info(f"Slant：找到 {len(tracks)} 首曲目")
         return tracks
 
     @staticmethod
     def _parse_slant_title(text: str) -> tuple[str, str] | None:
-        """Parse Slant review titles.
-
-        Format: "Artist 'Album/Track Title' Review: Description"
-        or: "Artist 'Album/Track Title' Review — Description"
-        """
-        # Extract quoted album/track name
+        """解析 Slant 樂評標題，提取藝人與專輯/曲目名。"""
+        # 從引號中提取專輯/曲名
         m = re.search(r"['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+", text)
         if m:
             title = m.group(1).strip()
@@ -65,7 +68,7 @@ class SlantScraper(BaseScraper):
             if artist and title:
                 return artist, title
 
-        # Fallback: "Review: Artist, Title" or "Artist – Title"
+        # 備選：移除 "Review:" 前綴後嘗試「Artist – Title」格式
         if text.lower().startswith("review:"):
             text = text[7:].strip()
 

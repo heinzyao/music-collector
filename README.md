@@ -12,18 +12,18 @@
 
 ### 支援的音樂媒體來源
 
-| 來源 | 擷取方式 | 狀態 |
-|------|----------|------|
-| Stereogum | RSS | 穩定運作 |
-| The Line of Best Fit | HTML | 穩定運作 |
-| Consequence | HTML | 穩定運作 |
-| SPIN | HTML | 穩定運作 |
-| Slant Magazine | HTML | 穩定運作 |
-| Pitchfork | RSS | 需要 "Best New Track" 標籤 |
-| NME | HTML | 需頁面結構適配 |
-| Rolling Stone | HTML | 依季度清單而定 |
-| Complex | HTML | JS 渲染，受限 |
-| Resident Advisor | HTML | JS 渲染，受限 |
+| 來源 | 類型 | 擷取方式 | 標題格式範例 | 狀態 |
+|------|------|----------|-------------|------|
+| Stereogum | RSS | `stereogum.com/feed/` 過濾單曲相關分類 | `Artist – "Song"`, `Artist Shares New Song "Title"` | 穩定 |
+| The Line of Best Fit | HTML | `/tracks` 頁面，解析每日推薦 | `ARTIST drops euphoric new track 'Song'` | 穩定 |
+| Consequence | HTML | WordPress 分類頁，週度精選 | `Song of the Week: Artist's "Song" Description` | 穩定 |
+| SPIN | HTML | 動態月度 URL `/YYYY/MM/now-hear-this-mmm-yyyy/` | `Artist – "Song"` | 穩定 |
+| Slant Magazine | HTML | `/music/` 樂評頁，從評論標題提取 | `Artist 'Album' Review: Description` | 穩定 |
+| Pitchfork | RSS | `pitchfork.com/feed/feed-album-reviews/rss`，篩選 "Best New Track" 標籤 | `Artist: Album` | 季節性 |
+| NME | HTML | 兩階段：索引頁找「best new tracks」文章 → 進入文章提取曲目 | `Artist – 'Song'` | 季節性 |
+| Rolling Stone | HTML | `/music/music-lists/` 搜尋當年度 "best-songs" 清單 | `Artist, 'Song'` | 季節性 |
+| Complex | HTML | 嘗試 `/music`、`/tag/best-new-music`、`/pigeons-and-planes` | `Artist "Song"` | JS 渲染，受限 |
+| Resident Advisor | HTML | `ra.co/reviews/singles`，嘗試從 SSR HTML 提取 | `Artist – Title` | JS 渲染，受限 |
 
 ## 快速開始
 
