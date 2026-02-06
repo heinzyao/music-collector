@@ -1,0 +1,20 @@
+[project]
+name = "music-collector"
+version = "0.1.0"
+description = "Automatically collect best tracks from music review sites and create Spotify playlists"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "feedparser>=6.0.12",
+    "httpx>=0.28.1",
+    "lxml>=6.0.2",
+    "python-dotenv>=1.2.1",
+    "spotipy>=2.25.2",
+]
+
+[project.scripts]
+music-collector = "music_collector.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
