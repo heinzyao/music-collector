@@ -11,14 +11,23 @@
 uv sync
 
 # 乾跑測試（不需 Spotify 憑證）
-PYTHONPATH=src uv run python -m music_collector --dry-run
+./run.sh --dry-run
 
 # 完整執行（需 .env 中的 Spotify 憑證）
-PYTHONPATH=src uv run python -m music_collector
+./run.sh
 
 # 查看近期蒐集紀錄
-PYTHONPATH=src uv run python -m music_collector --recent 7
+./run.sh --recent 7
+
+# 檢視備份（列出所有 / 指定季度）
+./run.sh --backup
+./run.sh --backup Q1
+
+# 清除歌單與資料庫，重新蒐集
+./run.sh --reset
 ```
+
+> `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`。
 
 ## 架構要點
 
@@ -28,7 +37,7 @@ PYTHONPATH=src uv run python -m music_collector --recent 7
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
 - `src/music_collector/notify.py` — LINE Messaging API 通知（Channel ID + Secret 自動產生 Token）
-- `src/music_collector/main.py` — 主流程：擷取 → 去重 → 合併舊清單 → 季度歸檔 → 搜尋 → 加入播放清單 → 備份 → 通知
+- `src/music_collector/main.py` — 主流程與 CLI：`--dry-run`、`--recent`、`--backup`、`--reset`
 
 ## 新增擷取器
 

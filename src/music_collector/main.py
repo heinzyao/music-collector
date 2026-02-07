@@ -4,13 +4,16 @@
     python -m music_collector              # 完整執行
     python -m music_collector --dry-run    # 僅擷取，不寫入 Spotify / 不備份 / 不通知
     python -m music_collector --recent 7   # 顯示最近 7 天蒐集的曲目
+    python -m music_collector --backup     # 列出所有備份
+    python -m music_collector --backup Q1  # 顯示指定季度備份內容
+    python -m music_collector --reset      # 清除歌單與資料庫，重新蒐集
 """
 
 import argparse
 import logging
-import sys
 
-from .backup import save_backup
+from .backup import list_backups, save_backup, show_backup
+from .config import DB_PATH
 from .db import init_db, save_track, track_exists, get_recent_tracks
 from .notify import send_notification
 from .scrapers import ALL_SCRAPERS
@@ -18,6 +21,7 @@ from .scrapers.base import Track
 from .spotify import (
     add_tracks_to_playlist,
     archive_previous_quarters,
+    clear_playlist,
     get_or_create_playlist,
     get_spotify_client,
     migrate_old_playlist,
@@ -51,6 +55,26 @@ def collect_tracks() -> list[Track]:
 
     conn.close()
     return new_tracks
+
+
+def reset() -> None:
+    """清除 Spotify 歌單與本地資料庫，重新蒐集。"""
+    logger.info("重置模式：清除歌單與資料庫...")
+
+    # 清除 Spotify 播放清單
+    sp = get_spotify_client()
+    playlist_id = get_or_create_playlist(sp)
+    removed = clear_playlist(sp, playlist_id)
+    logger.info(f"已從 Spotify 歌單移除 {removed} 首曲目")
+
+    # 清除本地資料庫
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+        logger.info("已刪除本地資料庫")
+
+    # 重新執行完整蒐集流程
+    logger.info("開始重新蒐集...")
+    run(dry_run=False)
 
 
 def run(dry_run: bool = False) -> None:
@@ -119,7 +143,7 @@ def run(dry_run: bool = False) -> None:
     if not_found:
         logger.info(f"{len(not_found)} 首曲目在 Spotify 上未找到")
 
-    # 備份至月度 JSON
+    # 備份至季度 JSON
     try:
         save_backup(new_tracks, spotify_results)
     except Exception as e:
@@ -155,9 +179,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="從音樂評論網站蒐集推薦曲目")
     parser.add_argument("--dry-run", action="store_true", help="僅擷取，不寫入 Spotify")
     parser.add_argument("--recent", type=int, metavar="DAYS", help="顯示最近 N 天蒐集的曲目")
+    parser.add_argument("--backup", nargs="?", const="", metavar="QUARTER",
+                        help="檢視備份：不帶參數列出所有備份，帶季度（如 Q1、2026Q1）顯示詳情")
+    parser.add_argument("--reset", action="store_true",
+                        help="清除 Spotify 歌單與資料庫，重新蒐集")
     args = parser.parse_args()
 
-    if args.recent is not None:
+    if args.backup is not None:
+        if args.backup:
+            show_backup(args.backup)
+        else:
+            list_backups()
+    elif args.recent is not None:
         show_recent(days=args.recent)
+    elif args.reset:
+        reset()
     else:
         run(dry_run=args.dry_run)

@@ -179,6 +179,20 @@ def add_tracks_to_playlist(sp: spotipy.Spotify, playlist_id: str, uris: list[str
         logger.info(f"已加入 {len(batch)} 首曲目至播放清單")
 
 
+def clear_playlist(sp: spotipy.Spotify, playlist_id: str) -> int:
+    """清除播放清單中的所有曲目，回傳移除的曲目數。"""
+    all_tracks = _get_all_playlist_tracks(sp, playlist_id)
+    if not all_tracks:
+        return 0
+
+    uris = [t["uri"] for t in all_tracks]
+    for i in range(0, len(uris), 100):
+        sp.playlist_remove_all_occurrences_of_items(playlist_id, uris[i : i + 100])
+
+    logger.info(f"已清除播放清單中 {len(uris)} 首曲目")
+    return len(uris)
+
+
 # ── 播放清單合併與季度歸檔 ──
 
 

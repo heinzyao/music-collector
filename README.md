@@ -70,14 +70,25 @@ PYTHONPATH=src uv run python auth.py
 
 ```bash
 # 完整執行（擷取 + Spotify + 備份 + 通知）
-PYTHONPATH=src uv run python -m music_collector
+./run.sh
 
 # 僅擷取，不寫入 Spotify / 不備份 / 不通知（測試用）
-PYTHONPATH=src uv run python -m music_collector --dry-run
+./run.sh --dry-run
 
 # 查看最近 N 天蒐集的曲目
-PYTHONPATH=src uv run python -m music_collector --recent 7
+./run.sh --recent 7
+
+# 列出所有備份檔案
+./run.sh --backup
+
+# 檢視指定季度備份內容（支援 Q1、2026Q1、2026/Q1 等格式）
+./run.sh --backup Q1
+
+# 清除歌單與資料庫，重新蒐集
+./run.sh --reset
 ```
+
+> `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`，可直接傳遞所有參數。
 
 ## Spotify 播放清單管理
 
@@ -104,6 +115,7 @@ PYTHONPATH=src uv run python -m music_collector --recent 7
 music-collector/
 ├── pyproject.toml                  # 專案設定與依賴
 ├── .env.example                    # 環境變數範本
+├── run.sh                          # 手動執行腳本（支援所有 CLI 參數）
 ├── auth.py                         # Spotify OAuth 一次性授權工具
 ├── com.music-collector.plist       # macOS launchd 排程設定
 ├── src/
