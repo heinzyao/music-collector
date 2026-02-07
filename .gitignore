@@ -11,5 +11,5 @@ wheels/
 
 # Project secrets and data
 .env
-data/tracks.db
+data/
 .spotify_cache

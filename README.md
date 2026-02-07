@@ -7,8 +7,15 @@
 每日自動執行以下流程：
 
 ```
-10 個音樂媒體來源 → 擷取推薦曲目 → 去重 → Spotify 搜尋比對 → 加入播放清單
+10 個音樂媒體來源 → 擷取推薦曲目 → 去重 → Spotify 搜尋比對 → 加入播放清單 → 季度歸檔 → 本地備份 → LINE 通知
 ```
+
+### 核心功能
+
+- **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
+- **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
+- **本地備份**：以 `data/backups/YYYY/QN.json` 季度結構備份所有曲目紀錄
+- **LINE 通知**：每次執行完成後透過 LINE Messaging API 推送摘要（選用）
 
 ### 支援的音樂媒體來源
 
@@ -19,9 +26,9 @@
 | Consequence | HTML | WordPress 分類頁，週度精選 | `Song of the Week: Artist's "Song" Description` | 穩定 |
 | SPIN | HTML | 動態月度 URL `/YYYY/MM/now-hear-this-mmm-yyyy/` | `Artist – "Song"` | 穩定 |
 | Slant Magazine | HTML | `/music/` 樂評頁，從評論標題提取 | `Artist 'Album' Review: Description` | 穩定 |
+| Rolling Stone | HTML | `/music/music-news/` 與 `/music/music-features/` 從近期文章提取曲目 | `Artist Shares New Song 'Title'` | 穩定 |
 | Pitchfork | RSS | `pitchfork.com/feed/feed-album-reviews/rss`，篩選 "Best New Track" 標籤 | `Artist: Album` | 季節性 |
 | NME | HTML | 兩階段：索引頁找「best new tracks」文章 → 進入文章提取曲目 | `Artist – 'Song'` | 季節性 |
-| Rolling Stone | HTML | `/music/music-lists/` 搜尋當年度 "best-songs" 清單 | `Artist, 'Song'` | 季節性 |
 | Complex | HTML | 嘗試 `/music`、`/tag/best-new-music`、`/pigeons-and-planes` | `Artist "Song"` | JS 渲染，受限 |
 | Resident Advisor | HTML | `ra.co/reviews/singles`，嘗試從 SSR HTML 提取 | `Artist – Title` | JS 渲染，受限 |
 
@@ -41,18 +48,19 @@ cd music-collector
 uv sync
 ```
 
-### 設定 Spotify 憑證
+### 設定憑證
 
-1. 前往 [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) 建立應用程式
-2. 設定 Redirect URI 為 `http://127.0.0.1:8888/callback`
-3. 複製 `.env.example` 為 `.env` 並填入憑證：
+1. 複製 `.env.example` 為 `.env`：
 
 ```bash
 cp .env.example .env
-# 編輯 .env，填入 SPOTIFY_CLIENT_ID 和 SPOTIFY_CLIENT_SECRET
 ```
 
-4. 首次授權（開啟瀏覽器進行 OAuth 認證）：
+2. **Spotify**（必要）：前往 [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)，建立應用程式並填入 `SPOTIFY_CLIENT_ID` 和 `SPOTIFY_CLIENT_SECRET`。設定 Redirect URI 為 `http://127.0.0.1:8888/callback`。
+
+3. **LINE 通知**（選用）：前往 [LINE Developers Console](https://developers.line.biz/console/)，建立 Messaging API Channel，填入 `LINE_CHANNEL_ID`、`LINE_CHANNEL_SECRET` 和 `LINE_USER_ID`。未設定時自動跳過。
+
+4. 首次 Spotify 授權（開啟瀏覽器進行 OAuth 認證）：
 
 ```bash
 PYTHONPATH=src uv run python auth.py
@@ -61,15 +69,34 @@ PYTHONPATH=src uv run python auth.py
 ### 使用方式
 
 ```bash
-# 完整執行（擷取 + 加入 Spotify 播放清單）
+# 完整執行（擷取 + Spotify + 備份 + 通知）
 PYTHONPATH=src uv run python -m music_collector
 
-# 僅擷取，不寫入 Spotify（測試用）
+# 僅擷取，不寫入 Spotify / 不備份 / 不通知（測試用）
 PYTHONPATH=src uv run python -m music_collector --dry-run
 
 # 查看最近 N 天蒐集的曲目
 PYTHONPATH=src uv run python -m music_collector --recent 7
 ```
+
+## Spotify 播放清單管理
+
+### 播放清單結構
+
+| 播放清單 | 用途 |
+|----------|------|
+| **Critics' Picks — Fresh Tracks** | 主清單，僅包含當季新曲目 |
+| **Critics' Picks — 2026 Q1** | 歸檔清單，2026 年第 1 季的曲目 |
+| **Critics' Picks — 2025 Q4** | 歸檔清單，2025 年第 4 季的曲目 |
+| ... | 依此類推，自動建立 |
+
+### 季度歸檔機制
+
+每次執行時自動檢查主播放清單中是否有「前季」曲目：
+1. 依據 Spotify `added_at` 時間判斷曲目所屬季度
+2. 自動建立季度歸檔播放清單（如 `Critics' Picks — 2026 Q1`）
+3. 將過季曲目移入歸檔清單，從主清單移除
+4. 當季曲目留在主清單中
 
 ## 專案結構
 
@@ -84,8 +111,10 @@ music-collector/
 │       ├── __main__.py             # CLI 進入點
 │       ├── main.py                 # 主流程調度器
 │       ├── config.py               # 環境變數與常數
-│       ├── spotify.py              # Spotify API 整合
+│       ├── spotify.py              # Spotify API 整合（搜尋驗證、季度歸檔）
 │       ├── db.py                   # SQLite 曲目紀錄與去重
+│       ├── backup.py               # 季度 JSON 備份
+│       ├── notify.py               # LINE Messaging API 通知
 │       └── scrapers/
 │           ├── __init__.py         # 擷取器註冊表
 │           ├── base.py             # 基礎擷取器抽象類別
@@ -100,7 +129,10 @@ music-collector/
 │           ├── complex.py          # Complex
 │           └── residentadvisor.py  # Resident Advisor
 └── data/
-    └── tracks.db                   # SQLite 資料庫（自動建立）
+    ├── tracks.db                   # SQLite 資料庫（自動建立）
+    ├── collector.log               # 排程執行日誌
+    └── backups/                    # 季度 JSON 備份（自動建立）
+        └── YYYY/QN.json
 ```
 
 ## 每日自動排程
@@ -130,12 +162,11 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 | RSS 解析 | feedparser | 業界標準 |
 | 音樂串流 | Spotify (spotipy) | Token 可自動更新，適合排程 |
 | 資料儲存 | SQLite | 零依賴、去重可靠 |
+| 推播通知 | LINE Messaging API (httpx) | 免額外套件、Token 自動產生 |
 
 > **為何不選 Apple Music？** Apple Music API 的 Token 無法自動更新（每次過期需手動重新授權），不適合無人值守的排程任務。
 
 ## 擴充與協作
-
-本專案預留以下協作介面：
 
 ### 新增擷取器
 

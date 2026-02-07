@@ -1,13 +1,12 @@
-"""Rolling Stone 擷取器（HTML）。
+"""Rolling Stone 擷取器（HTML，二階段）。
 
 來源：rollingstone.com — 全球知名音樂與流行文化雜誌。
-擷取方式：從音樂清單頁面尋找當年或去年的「best songs」年度清單，
-進入清單頁後從標題中提取曲目。
-注意：Rolling Stone 的清單通常在年底發布，年初可能無新清單。
+擷取方式：掃描音樂新聞與音樂特輯索引頁，從近期文章標題中提取曲目。
+過濾年度回顧清單（"best of"、"ranked"、"top 100" 等）。
 """
 
 import logging
-from datetime import datetime
+import re
 
 from bs4 import BeautifulSoup
 
@@ -16,8 +15,19 @@ from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
 
-# 音樂清單索引頁
-URL = "https://www.rollingstone.com/music/music-lists/"
+# 音樂新聞與特輯索引頁
+URLS = [
+    "https://www.rollingstone.com/music/music-news/",
+    "https://www.rollingstone.com/music/music-features/",
+]
+
+# 年度回顧 / 排行榜關鍵詞（小寫比對）
+_RECAP_KEYWORDS = [
+    "best of", "best songs", "best albums", "best tracks",
+    "top 100", "top 50", "top 25", "top 10",
+    "ranked", "ranking", "of the year", "of the decade",
+    "year in review", "year-end", "greatest",
+]
 
 
 class RollingStoneScraper(BaseScraper):
@@ -25,45 +35,90 @@ class RollingStoneScraper(BaseScraper):
 
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []
-        resp = self._get(URL)
-        soup = BeautifulSoup(resp.text, "lxml")
 
-        current_year = datetime.now().year
+        for url in URLS:
+            try:
+                resp = self._get(url)
+            except Exception as e:
+                logger.warning(f"Rolling Stone：索引頁擷取失敗 {url}: {e}")
+                continue
 
-        # 搜尋「best songs」清單連結（限當年或去年）
-        best_songs_url = None
-        for link in soup.select("a[href]")[:200]:
-            href = link.get("href", "")
-            text = link.get_text().lower()
-            if ("best-songs" in href or "best songs" in text) and (
-                str(current_year) in href or str(current_year - 1) in href
-            ):
-                best_songs_url = href
+            soup = BeautifulSoup(resp.text, "lxml")
+            tracks.extend(self._extract_from_index(soup))
+
+            if len(tracks) >= MAX_TRACKS_PER_SOURCE:
                 break
 
-        if not best_songs_url:
-            logger.info("Rolling Stone：未找到當期 best-songs 清單")
-            return tracks
+        logger.info(f"Rolling Stone：找到 {len(tracks[:MAX_TRACKS_PER_SOURCE])} 首曲目")
+        return tracks[:MAX_TRACKS_PER_SOURCE]
 
-        # 補全相對路徑
-        if best_songs_url.startswith("/"):
-            best_songs_url = "https://www.rollingstone.com" + best_songs_url
+    def _extract_from_index(self, soup: BeautifulSoup) -> list[Track]:
+        """從索引頁的文章標題中提取曲目。"""
+        tracks: list[Track] = []
 
-        try:
-            resp = self._get(best_songs_url)
-        except Exception as e:
-            logger.warning(f"Rolling Stone：清單頁面擷取失敗：{e}")
-            return tracks
-
-        soup = BeautifulSoup(resp.text, "lxml")
-
-        # 從清單項目標題中提取曲目
-        for heading in soup.select("h2, h3, .c-gallery-vertical-album__title"):
+        for heading in soup.select("h2 a, h3 a, .c-card__title a, .l-section__content a h3"):
             text = self.clean_text(heading.get_text())
-            parsed = self.parse_artist_title(text)
+            text_lower = text.lower()
+
+            # 跳過年度回顧 / 排行榜文章
+            if any(kw in text_lower for kw in _RECAP_KEYWORDS):
+                continue
+
+            # 嘗試從標題中提取曲目
+            parsed = self._parse_track_from_headline(text)
             if parsed:
                 artist, title = parsed
                 tracks.append(Track(artist=artist, title=title, source=self.name))
 
-        logger.info(f"Rolling Stone：找到 {len(tracks[:MAX_TRACKS_PER_SOURCE])} 首曲目")
-        return tracks[:MAX_TRACKS_PER_SOURCE]
+        return tracks
+
+    def _parse_track_from_headline(self, text: str) -> tuple[str, str] | None:
+        """從新聞標題中提取藝人與曲名。
+
+        Rolling Stone 新聞標題常見格式：
+        - "Artist Shares New Song 'Title'"
+        - "Artist Releases 'Title'"
+        - "Artist Drops New Single 'Title'"
+        - "Watch Artist's New Video for 'Title'"
+        - "Artist – 'Title'"
+        - "Hear Artist's New Track 'Title'"
+        """
+        # 格式一：帶引號的曲名（最常見）
+        # 匹配：Artist ... 'Title' / "Title"
+        m = re.match(
+            r"^(?:Watch |Hear |Listen to |Stream )?(.+?)\s+"
+            r"(?:Shares?|Releases?|Drops?|Debuts?|Unveils?|Premieres?|Announces?)"
+            r".*?['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+",
+            text,
+        )
+        if m:
+            artist = m.group(1).strip().rstrip("'s").rstrip("\u2019s")
+            title = m.group(2).strip()
+            if len(artist) > 1 and len(title) > 1:
+                return artist, title
+
+        # 格式二：Watch/Hear/Listen ... Artist's ... 'Title'
+        m = re.match(
+            r"^(?:Watch|Hear|Listen to|Stream)\s+(.+?)(?:'s|'s|\u2019s)\s+"
+            r".*?['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+",
+            text,
+        )
+        if m:
+            artist = m.group(1).strip()
+            title = m.group(2).strip()
+            if len(artist) > 1 and len(title) > 1:
+                return artist, title
+
+        # 格式三：帶引號但無動詞的格式（如 "Artist 'Title'"）
+        m = re.match(
+            r"^(.+?)\s+['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+\s*$",
+            text,
+        )
+        if m:
+            artist = m.group(1).strip()
+            title = m.group(2).strip()
+            # 確認 artist 部分看起來像人名（不含太多單詞）
+            if len(artist.split()) <= 4 and len(artist) > 1 and len(title) > 1:
+                return artist, title
+
+        return None

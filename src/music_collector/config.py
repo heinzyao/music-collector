@@ -12,13 +12,26 @@ load_dotenv()
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
 SPOTIFY_REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
-PLAYLIST_NAME = os.environ.get("PLAYLIST_NAME", "Daily Music Picks")
+PLAYLIST_NAME = os.environ.get("PLAYLIST_NAME", "Critics' Picks — Fresh Tracks")
+PLAYLIST_DESCRIPTION = (
+    "每日自動策展｜彙整 Pitchfork、Stereogum、Rolling Stone、NME、SPIN、"
+    "Consequence、The Line of Best Fit、Slant、Complex、Resident Advisor "
+    "等 10 家樂評媒體的最新推薦曲目。由 Music Collector 自動更新。"
+)
 
 # ── 檔案路徑 ──
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # 專案根目錄
 DATA_DIR = PROJECT_ROOT / "data"                              # 資料存放目錄
 DB_PATH = DATA_DIR / "tracks.db"                              # SQLite 資料庫路徑
 SPOTIFY_CACHE_PATH = PROJECT_ROOT / ".spotify_cache"          # Spotify OAuth Token 快取
+
+# ── LINE Messaging API 憑證（選用）──
+LINE_CHANNEL_ID = os.environ.get("LINE_CHANNEL_ID", "")
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
+LINE_USER_ID = os.environ.get("LINE_USER_ID", "")
+
+# ── 備份設定 ──
+BACKUP_DIR = DATA_DIR / "backups"
 
 # ── 網頁擷取設定 ──
 USER_AGENT = (

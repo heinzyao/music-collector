@@ -24,9 +24,11 @@ PYTHONPATH=src uv run python -m music_collector --recent 7
 
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別與 `Track` 資料模型
 - `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表，新增擷取器需在此註冊
-- `src/music_collector/spotify.py` — Spotify 整合（搜尋、建立播放清單、新增曲目）
+- `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
-- `src/music_collector/main.py` — 主流程：擷取 → 去重 → 搜尋 → 加入播放清單
+- `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
+- `src/music_collector/notify.py` — LINE Messaging API 通知（Channel ID + Secret 自動產生 Token）
+- `src/music_collector/main.py` — 主流程：擷取 → 去重 → 合併舊清單 → 季度歸檔 → 搜尋 → 加入播放清單 → 備份 → 通知
 
 ## 新增擷取器
 
@@ -37,7 +39,9 @@ PYTHONPATH=src uv run python -m music_collector --recent 7
 
 ## 注意事項
 
-- `.env` 和 `.spotify_cache` 不可推送至 Git
+- `.env`、`.spotify_cache`、`data/` 不可推送至 Git
 - 每個擷取器必須獨立處理例外，不可影響其他來源
-- Spotify 搜尋先用精確查詢 `track: artist:`，失敗後再用寬鬆查詢
+- Spotify 搜尋先用精確查詢 `track: artist:`，失敗後再用寬鬆查詢，兩者皆需通過藝人 + 曲名雙重驗證
 - 曲目去重以大小寫不敏感的 `(artist, title)` 比對
+- 備份/通知各自 try/except，失敗不影響主流程
+- `--dry-run` 模式不觸發 Spotify 操作、備份與通知

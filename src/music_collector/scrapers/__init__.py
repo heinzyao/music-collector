@@ -22,7 +22,7 @@ ALL_SCRAPERS = [
     ConsequenceScraper(),       # Consequence of Sound — HTML 擷取
     NMEScraper(),               # NME — HTML 擷取（二階段：索引頁 → 文章頁）
     SpinScraper(),              # SPIN — HTML 擷取（月度精選）
-    RollingStoneScraper(),      # Rolling Stone — HTML 擷取（年度清單）
+    RollingStoneScraper(),      # Rolling Stone — HTML 擷取（音樂新聞與特輯）
     SlantScraper(),             # Slant Magazine — HTML 擷取（樂評標題）
     ComplexScraper(),           # Complex — HTML 擷取（嘻哈/R&B 為主）
     ResidentAdvisorScraper(),   # Resident Advisor — HTML 擷取（電子音樂，JS 渲染受限）
