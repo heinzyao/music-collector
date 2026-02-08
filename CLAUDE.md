@@ -39,6 +39,23 @@ uv sync
 - `src/music_collector/notify.py` — LINE Messaging API 通知（Channel ID + Secret 自動產生 Token）
 - `src/music_collector/main.py` — 主流程與 CLI：`--dry-run`、`--recent`、`--backup`、`--reset`
 
+### 擷取器技術細節
+
+| 擷取器 | 方式 | 解析策略 |
+|--------|------|----------|
+| Pitchfork | HTML | `div[class*='SummaryItemWrapper']` 容器，`h3` 取曲名，`div sub-hed` 取藝人 |
+| NME | HTML | `/reviews/track` 頁面，敘述性標題解析（所有格 + 動詞短語分離） |
+| SPIN | HTML | `/new-music/` 頁面，typographic 引號匹配 + 動詞短語分離 |
+| Consequence | HTML | 引號提取曲名 + `_extract_artist_from_prefix()` 動詞邊界偵測 |
+| Line of Best Fit | HTML | 所有格 `'s` 優先策略 + 擴展動詞清單 |
+| Slant/Complex/RA | HTML | 含 JS 渲染偵測（Cloudflare/Next.js 空頁面檢查） |
+
+### 引號處理注意事項
+
+- Consequence：不可將直引號 `'` 放入引號匹配字元集，否則所有格會被誤判為開引號
+- NME / SPIN：使用 `\u2019(?![a-zA-Z])` negative lookahead 避免將縮寫撇號（如 Where's）誤判為結尾引號
+- SPIN：引號內曲名需 `rstrip(".,;:!?")` 移除尾端標點
+
 ## 新增擷取器
 
 1. 在 `src/music_collector/scrapers/` 建立新檔案

@@ -90,7 +90,9 @@ main          ← 穩定版本
 以下為預留的擴充空間，歡迎各 Agent 認領：
 
 - [ ] **新擷取器**：Uncut、OkayPlayer、Bandcamp Daily、The Quietus、Gorilla vs. Bear
-- [ ] **解析品質**：改善 Consequence、Slant 的標題解析精確度
+- [x] **解析品質**：改善 Consequence、Slant 的標題解析精確度
+- [x] **擷取器重寫**：Pitchfork（RSS→HTML）、NME（新 URL + 敘述性標題解析器）、SPIN（新 URL + 敘述性標題解析器）
+- [x] **JS 偵測**：Slant、Complex、Resident Advisor 加入 JS 渲染/Cloudflare 偵測
 - [ ] **JS 渲染來源**：整合 Playwright 處理 Complex、Resident Advisor
 - [ ] **多平台輸出**：YouTube Music、Tidal 播放清單匯出
 - [ ] **通知系統**：每日摘要推送（Telegram、LINE、Slack）

@@ -37,13 +37,41 @@ class SlantScraper(BaseScraper):
 
             soup = BeautifulSoup(resp.text, "lxml")
 
-            for heading in soup.select("h2 a, h3 a, .post-title a, article h2, .entry-title a")[:MAX_TRACKS_PER_SOURCE]:
+            # 偵測 JS 渲染 / Cloudflare 挑戰頁
+            body_text = soup.get_text(strip=True).lower()
+            if any(
+                indicator in body_text
+                for indicator in [
+                    "enable javascript",
+                    "checking your browser",
+                    "just a moment",
+                    "cloudflare",
+                ]
+            ):
+                logger.warning(
+                    "Slant：網站被 Cloudflare JS 挑戰阻擋，無法以靜態 HTML 擷取。"
+                    "未來可考慮整合 Playwright。"
+                )
+                return tracks
+
+            for heading in soup.select(
+                "h2 a, h3 a, .post-title a, article h2, .entry-title a"
+            )[:MAX_TRACKS_PER_SOURCE]:
                 text = self.clean_text(heading.get_text())
 
                 # 略過非音樂內容
-                if any(skip in text.lower() for skip in [
-                    "best of", "worst of", "ranked", "interview", "the 25", "film", "tv",
-                ]):
+                if any(
+                    skip in text.lower()
+                    for skip in [
+                        "best of",
+                        "worst of",
+                        "ranked",
+                        "interview",
+                        "the 25",
+                        "film",
+                        "tv",
+                    ]
+                ):
                     continue
 
                 parsed = self._parse_slant_title(text)
@@ -64,7 +92,7 @@ class SlantScraper(BaseScraper):
         m = re.search(r"['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+", text)
         if m:
             title = m.group(1).strip()
-            artist = text[:m.start()].strip()
+            artist = text[: m.start()].strip()
             if artist and title:
                 return artist, title
 

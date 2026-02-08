@@ -56,49 +56,234 @@ class LineOfBestFitScraper(BaseScraper):
     def _parse_lobf_title(text: str) -> tuple[str, str] | None:
         """解析 LOBF 文章標題，提取藝人與曲名。
 
+        LOBF 標題格式：「ARTIST NAME [動詞描述] 'Song Title'」
         策略：先從末尾引號中提取曲名，再從開頭提取藝人名。
-        藝人名通常為全大寫或首字大寫，第一個小寫動詞出現前的部分即為藝人。
+
+        藝人名辨識：
+          1. 處理所有格（'s）：如 "Charlie Le Mindu's musical project..." → "Charlie Le Mindu"
+          2. 正規表達式匹配：藝人名為大寫/首字大寫，第一個全小寫動詞之前的部分
+          3. 動詞清單匹配：用擴充的動詞清單作為備選
         """
         # 從末尾的引號中提取曲名
-        m = re.search(r"['\u2018\u2019\u201c\u201d\"]+(.+?)['\u2018\u2019\u201c\u201d\"]+\s*$", text)
+        m = re.search(
+            r"['\u2018\u2019\u201c\u201d\"]+(.+?)['\u2018\u2019\u201c\u201d\"]+\s*$",
+            text,
+        )
         if not m:
             return None
         title = m.group(1).strip()
 
-        # 提取藝人名：用正規表達式找到第一個小寫動詞的位置
-        # 藝人名為大寫/首字大寫，第一個小寫字即為動詞開始
-        prefix = text[:m.start()].strip()
+        prefix = text[: m.start()].strip()
+
+        # === 策略 1：處理所有格 's ===
+        # "Charlie Le Mindu's musical project MUCHAS PROBLEMAS..." → "Charlie Le Mindu"
+        possessive_m = re.match(r"^(.+?)['\u2019]s\s+", prefix)
+        if possessive_m:
+            artist = possessive_m.group(1).strip()
+            if artist:
+                return artist, title
+
+        # === 策略 2：正規表達式 — 大寫字開頭，遇到小寫字（動詞）即停止 ===
+        # 允許的小寫連接詞：and, &, the, of, de, von, van, feat, ft, x, vs
         artist_m = re.match(
-            r"^((?:[A-Z0-9][\w.]*(?:\s+(?:and|&|the|of|de|von|van|feat\.?|ft\.?)\s+)?)+)"
+            r"^("
+            r"(?:[A-Z0-9\u00C0-\u024F][\w.\u00C0-\u024F-]*"
+            r"(?:\s+(?:and|&|the|of|de|von|van|feat\.?|ft\.?|x|vs\.?)\s+)?)"
+            r"+)"
             r"(?:\s+[a-z])",
             prefix,
         )
         if artist_m:
             artist = artist_m.group(1).strip()
+            if artist:
+                return artist, title
+
+        # === 策略 3：擴充動詞清單切分 ===
+        verbs = [
+            "shares",
+            "share",
+            "unveils",
+            "unveil",
+            "releases",
+            "release",
+            "announces",
+            "announce",
+            "debuts",
+            "debut",
+            "delivers",
+            "deliver",
+            "drops",
+            "drop",
+            "returns",
+            "return",
+            "confronts",
+            "confront",
+            "explores",
+            "explore",
+            "channels",
+            "channel",
+            "captures",
+            "capture",
+            "embraces",
+            "embrace",
+            "numbs",
+            "numb",
+            "skewers",
+            "skewer",
+            "soars",
+            "soar",
+            "dives",
+            "dive",
+            "finds",
+            "find",
+            "reveals",
+            "reveal",
+            "offers",
+            "offer",
+            "brings",
+            "bring",
+            "opens",
+            "open",
+            "closes",
+            "close",
+            "paints",
+            "paint",
+            "wrestles",
+            "wrestle",
+            "navigates",
+            "navigate",
+            "plays",
+            "play",
+            "feels",
+            "feel",
+            "demands",
+            "demand",
+            "draws",
+            "draw",
+            "moves",
+            "move",
+            "gives",
+            "give",
+            "longs",
+            "long",
+            "marries",
+            "marry",
+            "steers",
+            "steer",
+            "wades",
+            "wade",
+            "resurrects",
+            "resurrect",
+            "sharpens",
+            "sharpen",
+            "does",
+            "do",
+            "is",
+            "are",
+            "has",
+            "have",
+            "gets",
+            "get",
+            "freezes",
+            "freeze",
+            "takes",
+            "take",
+            "makes",
+            "make",
+            "goes",
+            "go",
+            "comes",
+            "come",
+            "puts",
+            "put",
+            "sets",
+            "set",
+            "rides",
+            "ride",
+            "rises",
+            "rise",
+            "leads",
+            "lead",
+            "hits",
+            "hit",
+            "cuts",
+            "cut",
+            "runs",
+            "run",
+            "turns",
+            "turn",
+            "keeps",
+            "keep",
+            "holds",
+            "hold",
+            "stands",
+            "stand",
+            "tells",
+            "tell",
+            "calls",
+            "call",
+            "shows",
+            "show",
+            "wants",
+            "want",
+            "needs",
+            "need",
+            "looks",
+            "look",
+            "creates",
+            "create",
+            "builds",
+            "build",
+            "picks",
+            "pick",
+            "teams",
+            "team",
+            "joins",
+            "join",
+            "taps",
+            "tap",
+            "imagines",
+            "imagine",
+            "weaves",
+            "weave",
+            "traces",
+            "trace",
+            "balances",
+            "balance",
+            "blends",
+            "blend",
+            "crafts",
+            "craft",
+            "evokes",
+            "evoke",
+            "reflects",
+            "reflect",
+            "searches",
+            "search",
+            "pours",
+            "pour",
+            "digs",
+            "dig",
+            "strips",
+            "strip",
+            "transforms",
+            "transform",
+            "breaks",
+            "break",
+        ]
+        prefix_lower = prefix.lower()
+        best_idx = len(prefix)
+        for verb in verbs:
+            # 用字邊界匹配（確保是完整單字）
+            pattern = f" {verb} "
+            idx = prefix_lower.find(pattern)
+            if idx != -1 and idx < best_idx:
+                best_idx = idx
+
+        if best_idx < len(prefix):
+            artist = prefix[:best_idx].strip()
         else:
-            # 備選策略：用已知動詞清單切分
-            verbs = [
-                " shares ", " share ", " unveils ", " unveil ", " releases ", " release ",
-                " announces ", " announce ", " debuts ", " debut ", " delivers ", " deliver ",
-                " drops ", " drop ", " returns ", " return ", " confronts ", " confront ",
-                " explores ", " explore ", " channels ", " channel ", " captures ", " capture ",
-                " embraces ", " embrace ", " numb ", " numbs ", " skewer ", " skewers ",
-                " soars ", " soar ", " dives ", " dive ", " finds ", " find ",
-                " reveals ", " reveal ", " offers ", " offer ", " brings ", " bring ",
-                " opens ", " open ", " closes ", " close ", " paints ", " paint ",
-                " wrestles ", " wrestle ", " navigates ", " navigate ", " plays ", " play ",
-                " feels ", " feel ", " demands ", " demand ", " draws ", " draw ",
-                " moves ", " move ", " gives ", " give ", " longs ", " long ",
-                " marries ", " marry ", " steers ", " steer ", " wades ", " wade ",
-                " resurrects ", " resurrect ", " sharpens ", " sharpen ",
-                " does ", " do ", " is ", " are ", " has ", " have ", " gets ", " get ",
-            ]
             artist = prefix
-            for verb in verbs:
-                idx = prefix.lower().find(verb)
-                if idx != -1:
-                    artist = prefix[:idx].strip()
-                    break
 
         artist = artist.strip().strip(",").strip()
         if artist and title:

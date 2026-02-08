@@ -38,7 +38,26 @@ class ComplexScraper(BaseScraper):
 
             soup = BeautifulSoup(resp.text, "lxml")
 
-            for heading in soup.select("h2 a, h3 a, article a, .post-title a")[:MAX_TRACKS_PER_SOURCE]:
+            # 偵測 JS 渲染：如果頁面內容極少或含有 JS 挑戰標記
+            body_text = soup.get_text(strip=True)
+            if len(body_text) < 200 or any(
+                indicator in body_text.lower()
+                for indicator in [
+                    "enable javascript",
+                    "checking your browser",
+                    "just a moment",
+                    "cloudflare",
+                ]
+            ):
+                logger.warning(
+                    "Complex：網站為 JS 重度渲染，無法以靜態 HTML 擷取。"
+                    "未來可考慮整合 Playwright。"
+                )
+                return tracks
+
+            for heading in soup.select("h2 a, h3 a, article a, .post-title a")[
+                :MAX_TRACKS_PER_SOURCE
+            ]:
                 text = self.clean_text(heading.get_text())
                 if not text or len(text) < 5:
                     continue
@@ -53,15 +72,17 @@ class ComplexScraper(BaseScraper):
                     "Listen:",
                 ]:
                     if text.lower().startswith(prefix.lower()):
-                        text = text[len(prefix):].strip()
+                        text = text[len(prefix) :].strip()
 
                 # 嘗試從引號中提取曲名
                 m = re.search(r"['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+", text)
                 if m:
                     title = m.group(1).strip()
-                    artist = text[:m.start()].strip().rstrip("'s").rstrip(",").strip()
+                    artist = text[: m.start()].strip().rstrip("'s").rstrip(",").strip()
                     if artist and title:
-                        tracks.append(Track(artist=artist, title=title, source=self.name))
+                        tracks.append(
+                            Track(artist=artist, title=title, source=self.name)
+                        )
                         continue
 
                 # 備選：標準「Artist – Title」格式

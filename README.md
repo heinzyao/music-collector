@@ -21,16 +21,16 @@
 
 | 來源 | 類型 | 擷取方式 | 標題格式範例 | 狀態 |
 |------|------|----------|-------------|------|
+| Pitchfork | HTML | `/reviews/best/tracks/` 最佳曲目頁面 | `SummaryItemWrapper` 元件解析 | 穩定（30 首） |
 | Stereogum | RSS | `stereogum.com/feed/` 過濾單曲相關分類 | `Artist – "Song"`, `Artist Shares New Song "Title"` | 穩定 |
 | The Line of Best Fit | HTML | `/tracks` 頁面，解析每日推薦 | `ARTIST drops euphoric new track 'Song'` | 穩定 |
 | Consequence | HTML | WordPress 分類頁，週度精選 | `Song of the Week: Artist's "Song" Description` | 穩定 |
-| SPIN | HTML | 動態月度 URL `/YYYY/MM/now-hear-this-mmm-yyyy/` | `Artist – "Song"` | 穩定 |
-| Slant Magazine | HTML | `/music/` 樂評頁，從評論標題提取 | `Artist 'Album' Review: Description` | 穩定 |
+| NME | HTML | `/reviews/track` 個別曲目評論頁 | `Artist's new single 'Title' review` | 穩定 |
+| SPIN | HTML | `/new-music/` 分類頁面 | `Artist Explore Darkness on 'Song'` | 穩定 |
 | Rolling Stone | HTML | `/music/music-news/` 與 `/music/music-features/` 從近期文章提取曲目 | `Artist Shares New Song 'Title'` | 穩定 |
-| Pitchfork | RSS | `pitchfork.com/feed/feed-album-reviews/rss`，篩選 "Best New Track" 標籤 | `Artist: Album` | 季節性 |
-| NME | HTML | 兩階段：索引頁找「best new tracks」文章 → 進入文章提取曲目 | `Artist – 'Song'` | 季節性 |
-| Complex | HTML | 嘗試 `/music`、`/tag/best-new-music`、`/pigeons-and-planes` | `Artist "Song"` | JS 渲染，受限 |
-| Resident Advisor | HTML | `ra.co/reviews/singles`，嘗試從 SSR HTML 提取 | `Artist – Title` | JS 渲染，受限 |
+| Slant Magazine | HTML | `/music/` 樂評頁，從評論標題提取（含 JS 偵測） | `Artist 'Album' Review: Description` | 穩定 |
+| Complex | HTML | 嘗試 `/music`、`/tag/best-new-music`（含 JS 偵測） | `Artist "Song"` | JS 渲染，受限 |
+| Resident Advisor | HTML | `ra.co/reviews/singles`（含 JS 偵測） | `Artist – Title` | JS 渲染，受限 |
 
 ## 快速開始
 
@@ -130,7 +130,7 @@ music-collector/
 │       └── scrapers/
 │           ├── __init__.py         # 擷取器註冊表
 │           ├── base.py             # 基礎擷取器抽象類別
-│           ├── pitchfork.py        # Pitchfork (RSS)
+│           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
 │           ├── lineofbestfit.py    # The Line of Best Fit
 │           ├── consequence.py      # Consequence of Sound

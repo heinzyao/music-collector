@@ -36,6 +36,15 @@ class ResidentAdvisorScraper(BaseScraper):
 
             soup = BeautifulSoup(resp.text, "lxml")
 
+            # 偵測 JS 渲染：RA 為 Next.js 應用，靜態 HTML 幾乎無內容
+            body_text = soup.get_text(strip=True)
+            if len(body_text) < 500:
+                logger.warning(
+                    "Resident Advisor：網站為 Next.js 單頁應用，"
+                    "靜態 HTML 無有效內容。未來可考慮整合 Playwright 或逆向 GraphQL API。"
+                )
+                return tracks
+
             # RA 為 React 應用，嘗試從伺服器端渲染的 HTML 中提取
             for item in soup.select(
                 "li a, article a, [class*='track'] a, [class*='Track'] a, h3 a"
