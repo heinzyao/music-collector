@@ -23,6 +23,14 @@ uv sync
 ./run.sh --backup
 ./run.sh --backup Q1
 
+# 匯出備份供 Apple Music 匯入
+./run.sh --export Q1              # 匯出為 CSV（適用 TuneMyMusic）
+./run.sh --export Q1 --format txt # 匯出為純文字
+./run.sh --export Q1 --all        # 包含未在 Spotify 找到的曲目
+
+# 自動匯入 Apple Music（開啟瀏覽器，需手動登入 Apple ID）
+./run.sh --import Q1
+
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset
 ```
@@ -36,8 +44,10 @@ uv sync
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
+- `src/music_collector/export.py` — 匯出備份為 CSV/TXT，供 Apple Music 匯入工具使用
+- `src/music_collector/tunemymusic.py` — Selenium 自動化 TuneMyMusic 匯入 Apple Music
 - `src/music_collector/notify.py` — LINE Messaging API 通知（Channel ID + Secret 自動產生 Token）
-- `src/music_collector/main.py` — 主流程與 CLI：`--dry-run`、`--recent`、`--backup`、`--reset`
+- `src/music_collector/main.py` — 主流程與 CLI
 
 ### 擷取器技術細節
 

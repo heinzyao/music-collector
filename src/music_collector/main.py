@@ -6,6 +6,9 @@
     python -m music_collector --recent 7   # 顯示最近 7 天蒐集的曲目
     python -m music_collector --backup     # 列出所有備份
     python -m music_collector --backup Q1  # 顯示指定季度備份內容
+    python -m music_collector --export Q1  # 匯出 Q1 為 CSV（供 Apple Music 匯入）
+    python -m music_collector --export Q1 --format txt  # 匯出為純文字
+    python -m music_collector --import Q1  # 匯出並自動匯入 Apple Music（需瀏覽器）
     python -m music_collector --reset      # 清除歌單與資料庫，重新蒐集
 """
 
@@ -13,7 +16,9 @@ import argparse
 import logging
 
 from .backup import list_backups, save_backup, show_backup
-from .config import DB_PATH
+from .export import export_playlist
+from .tunemymusic import import_to_apple_music
+from .config import DB_PATH, PLAYLIST_NAME
 from .db import init_db, save_track, track_exists, get_recent_tracks
 from .notify import send_notification
 from .scrapers import ALL_SCRAPERS
@@ -181,11 +186,31 @@ def main() -> None:
     parser.add_argument("--recent", type=int, metavar="DAYS", help="顯示最近 N 天蒐集的曲目")
     parser.add_argument("--backup", nargs="?", const="", metavar="QUARTER",
                         help="檢視備份：不帶參數列出所有備份，帶季度（如 Q1、2026Q1）顯示詳情")
+    parser.add_argument("--export", metavar="QUARTER",
+                        help="匯出備份為 CSV 或 TXT，供 Apple Music 匯入工具使用")
+    parser.add_argument("--format", choices=["csv", "txt"], default="csv",
+                        help="匯出格式：csv（預設，適用 TuneMyMusic）或 txt（純文字）")
+    parser.add_argument("--all", action="store_true", dest="include_all",
+                        help="匯出時包含未在 Spotify 找到的曲目")
     parser.add_argument("--reset", action="store_true",
                         help="清除 Spotify 歌單與資料庫，重新蒐集")
+    parser.add_argument("--import", metavar="QUARTER", dest="import_quarter",
+                        help="匯出備份並自動透過 TuneMyMusic 匯入 Apple Music")
     args = parser.parse_args()
 
-    if args.backup is not None:
+    if args.import_quarter:
+        # 先匯出為 CSV（使用 Spotify 歌單名稱作為檔名，TuneMyMusic 會用檔名作為目標歌單名）
+        csv_path = export_playlist(
+            args.import_quarter,
+            fmt="csv",
+            include_all=args.include_all,
+            playlist_name=PLAYLIST_NAME,
+        )
+        if csv_path:
+            import_to_apple_music(str(csv_path))
+    elif args.export:
+        export_playlist(args.export, fmt=args.format, include_all=args.include_all)
+    elif args.backup is not None:
         if args.backup:
             show_backup(args.backup)
         else:
@@ -196,3 +221,4 @@ def main() -> None:
         reset()
     else:
         run(dry_run=args.dry_run)
+
