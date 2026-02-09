@@ -14,8 +14,17 @@ dependencies = [
     "spotipy>=2.25.2",
 ]
 
+[project.optional-dependencies]
+browser = ["playwright>=1.50.0"]
+test = ["pytest>=8.0", "respx>=0.22.0", "pytest-cov>=6.0"]
+web = ["streamlit>=1.45.0"]
+all = ["playwright>=1.50.0", "streamlit>=1.45.0"]
+
 [project.scripts]
 music-collector = "music_collector.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -15,8 +15,9 @@ SPOTIFY_REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:
 PLAYLIST_NAME = os.environ.get("PLAYLIST_NAME", "Critics' Picks — Fresh Tracks")
 PLAYLIST_DESCRIPTION = (
     "每日自動策展｜彙整 Pitchfork、Stereogum、Rolling Stone、NME、SPIN、"
-    "Consequence、The Line of Best Fit、Slant、Complex、Resident Advisor "
-    "等 10 家樂評媒體的最新推薦曲目。由 Music Collector 自動更新。"
+    "Consequence、The Line of Best Fit、Slant、Complex、Resident Advisor、"
+    "Gorilla vs. Bear、Bandcamp Daily、The Quietus "
+    "等 13 家樂評媒體的最新推薦曲目。由 Music Collector 自動更新。"
 )
 
 # ── 檔案路徑 ──
@@ -40,3 +41,13 @@ USER_AGENT = (
 )
 REQUEST_TIMEOUT = 30          # HTTP 請求逾時秒數
 MAX_TRACKS_PER_SOURCE = 50    # 每個來源最多擷取的曲目數
+
+# ── Playwright 設定（選用）──
+ENABLE_PLAYWRIGHT = os.environ.get("ENABLE_PLAYWRIGHT", "false").lower() == "true"
+
+# ── Telegram 通知（選用）──
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# ── Slack 通知（選用）──
+SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")

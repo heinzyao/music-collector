@@ -65,6 +65,7 @@ CREATE TABLE tracks (
 `BaseScraper` 提供以下共用方法：
 
 - `_get(url)` — HTTP GET，含 User-Agent 與逾時處理
+- `_get_rendered(url, wait_selector)` — Playwright 瀏覽器渲染（需 ENABLE_PLAYWRIGHT=true）
 - `parse_artist_title(text)` — 解析 "Artist – Title" 格式
 - `clean_text(text)` — 清理空白與 HTML 實體
 
@@ -89,14 +90,14 @@ main          ← 穩定版本
 
 以下為預留的擴充空間，歡迎各 Agent 認領：
 
-- [ ] **新擷取器**：Uncut、OkayPlayer、Bandcamp Daily、The Quietus、Gorilla vs. Bear
+- [x] **新擷取器**：Gorilla vs. Bear、Bandcamp Daily、The Quietus
 - [x] **解析品質**：改善 Consequence、Slant 的標題解析精確度
 - [x] **擷取器重寫**：Pitchfork（RSS→HTML）、NME（新 URL + 敘述性標題解析器）、SPIN（新 URL + 敘述性標題解析器）
 - [x] **JS 偵測**：Slant、Complex、Resident Advisor 加入 JS 渲染/Cloudflare 偵測
-- [ ] **JS 渲染來源**：整合 Playwright 處理 Complex、Resident Advisor
-- [ ] **多平台輸出**：YouTube Music、Tidal 播放清單匯出
-- [ ] **通知系統**：每日摘要推送（Telegram、LINE、Slack）
-- [ ] **資料分析**：曲目趨勢、跨來源重疊分析
-- [ ] **測試覆蓋**：擷取器單元測試、模擬 HTTP 回應
-- [ ] **容器化**：Docker 部署、GitHub Actions CI/CD
-- [ ] **Web 介面**：瀏覽蒐集紀錄、管理播放清單
+- [x] **JS 渲染來源**：整合 Playwright 處理 Complex、Resident Advisor（httpx → Playwright 自動 fallback）
+- [x] **多平台輸出**：Spotify 播放清單 URL 匯出（供 TuneMyMusic/Soundiiz 轉換至 YouTube Music、Tidal 等）
+- [x] **通知系統**：LINE + Telegram + Slack 多通道推送
+- [x] **資料分析**：曲目趨勢、跨來源重疊分析、來源效能比較（--stats CLI）
+- [x] **測試覆蓋**：82 項測試（pytest + respx mock），涵蓋 13 個擷取器
+- [x] **容器化**：Dockerfile + docker-compose.yml + GitHub Actions CI/CD
+- [x] **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理

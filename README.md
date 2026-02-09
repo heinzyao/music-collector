@@ -7,7 +7,7 @@
 每日自動執行以下流程：
 
 ```
-10 個音樂媒體來源 → 擷取推薦曲目 → 去重 → Spotify 搜尋比對 → 加入播放清單 → 季度歸檔 → 本地備份 → LINE 通知
+13 個音樂媒體來源 → 擷取推薦曲目 → 去重 → Spotify 搜尋比對 → 加入播放清單 → 季度歸檔 → 本地備份 → 多通道通知
 ```
 
 ### 核心功能
@@ -15,22 +15,29 @@
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
 - **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
 - **本地備份**：以 `data/backups/YYYY/QN.json` 季度結構備份所有曲目紀錄
-- **LINE 通知**：每次執行完成後透過 LINE Messaging API 推送摘要（選用）
+- **多通道通知**：LINE + Telegram + Slack 推送執行摘要（選用）
+- **多平台匯出**：Spotify URL 匯出，供 TuneMyMusic/Soundiiz 轉換至 YouTube Music、Tidal 等
+- **資料分析**：來源貢獻、Spotify 配對率、跨來源重疊分析
+- **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
+- **Playwright 支援**：JS 重度渲染網站自動 fallback 至瀏覽器渲染
 
 ### 支援的音樂媒體來源
 
-| 來源 | 類型 | 擷取方式 | 標題格式範例 | 狀態 |
-|------|------|----------|-------------|------|
-| Pitchfork | HTML | `/reviews/best/tracks/` 最佳曲目頁面 | `SummaryItemWrapper` 元件解析 | 穩定（30 首） |
-| Stereogum | RSS | `stereogum.com/feed/` 過濾單曲相關分類 | `Artist – "Song"`, `Artist Shares New Song "Title"` | 穩定 |
-| The Line of Best Fit | HTML | `/tracks` 頁面，解析每日推薦 | `ARTIST drops euphoric new track 'Song'` | 穩定 |
-| Consequence | HTML | WordPress 分類頁，週度精選 | `Song of the Week: Artist's "Song" Description` | 穩定 |
-| NME | HTML | `/reviews/track` 個別曲目評論頁 | `Artist's new single 'Title' review` | 穩定 |
-| SPIN | HTML | `/new-music/` 分類頁面 | `Artist Explore Darkness on 'Song'` | 穩定 |
-| Rolling Stone | HTML | `/music/music-news/` 與 `/music/music-features/` 從近期文章提取曲目 | `Artist Shares New Song 'Title'` | 穩定 |
-| Slant Magazine | HTML | `/music/` 樂評頁，從評論標題提取（含 JS 偵測） | `Artist 'Album' Review: Description` | 穩定 |
-| Complex | HTML | 嘗試 `/music`、`/tag/best-new-music`（含 JS 偵測） | `Artist "Song"` | JS 渲染，受限 |
-| Resident Advisor | HTML | `ra.co/reviews/singles`（含 JS 偵測） | `Artist – Title` | JS 渲染，受限 |
+| 來源 | 類型 | 擷取方式 | 狀態 |
+|------|------|----------|------|
+| Pitchfork | HTML | `/reviews/best/tracks/` 最佳曲目頁面 | 穩定 |
+| Stereogum | RSS | `stereogum.com/feed/` 過濾單曲相關分類 | 穩定 |
+| The Line of Best Fit | HTML | `/tracks` 頁面，解析每日推薦 | 穩定 |
+| Consequence | HTML | WordPress 分類頁，週度精選 | 穩定 |
+| NME | HTML | `/reviews/track` 個別曲目評論頁 | 穩定 |
+| SPIN | HTML | `/new-music/` 分類頁面 | 穩定 |
+| Rolling Stone | HTML | 音樂新聞與特輯索引頁 + 文章頁 | 穩定 |
+| Slant Magazine | HTML | `/music/` 樂評頁（含 JS 偵測） | 穩定 |
+| Complex | HTML | `/music` 等（含 JS 偵測 + Playwright fallback） | JS 渲染 |
+| Resident Advisor | HTML | `ra.co/reviews/singles`（含 Playwright fallback） | JS 渲染 |
+| Gorilla vs. Bear | RSS | `gorillavsbear.net/feed/` 過濾 mp3/video 分類 | 穩定 |
+| Bandcamp Daily | RSS | `daily.bandcamp.com/feed` Album of the Day | 穩定 |
+| The Quietus | RSS | `thequietus.com/feed` 過濾 Reviews 分類 | 穩定 |
 
 ## 快速開始
 
@@ -58,7 +65,10 @@ cp .env.example .env
 
 2. **Spotify**（必要）：前往 [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)，建立應用程式並填入 `SPOTIFY_CLIENT_ID` 和 `SPOTIFY_CLIENT_SECRET`。設定 Redirect URI 為 `http://127.0.0.1:8888/callback`。
 
-3. **LINE 通知**（選用）：前往 [LINE Developers Console](https://developers.line.biz/console/)，建立 Messaging API Channel，填入 `LINE_CHANNEL_ID`、`LINE_CHANNEL_SECRET` 和 `LINE_USER_ID`。未設定時自動跳過。
+3. **通知**（選用）：
+   - **LINE**：前往 [LINE Developers Console](https://developers.line.biz/console/)，填入 `LINE_CHANNEL_ID`、`LINE_CHANNEL_SECRET`、`LINE_USER_ID`
+   - **Telegram**：建立 Bot（[@BotFather](https://t.me/BotFather)），填入 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`
+   - **Slack**：建立 Incoming Webhook，填入 `SLACK_WEBHOOK_URL`
 
 4. 首次 Spotify 授權（開啟瀏覽器進行 OAuth 認證）：
 
@@ -83,6 +93,19 @@ PYTHONPATH=src uv run python auth.py
 
 # 檢視指定季度備份內容（支援 Q1、2026Q1、2026/Q1 等格式）
 ./run.sh --backup Q1
+
+# 匯出備份供多平台匯入
+./run.sh --export Q1              # CSV 格式
+./run.sh --export Q1 --format txt # 純文字格式
+./run.sh --export-spotify-url     # 輸出 Spotify 連結供轉換
+
+# 資料分析
+./run.sh --stats              # 總覽
+./run.sh --stats overlap      # 跨來源重疊
+./run.sh --stats sources      # 來源比較
+
+# Web 介面
+./run.sh --web
 
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset
@@ -115,21 +138,28 @@ PYTHONPATH=src uv run python auth.py
 music-collector/
 ├── pyproject.toml                  # 專案設定與依賴
 ├── .env.example                    # 環境變數範本
-├── run.sh                          # 手動執行腳本（支援所有 CLI 參數）
+├── run.sh                          # 手動執行腳本
 ├── auth.py                         # Spotify OAuth 一次性授權工具
+├── Dockerfile                      # Docker 容器化
+├── docker-compose.yml              # Docker Compose 設定
 ├── com.music-collector.plist       # macOS launchd 排程設定
+├── .github/workflows/ci.yml       # GitHub Actions CI
 ├── src/
 │   └── music_collector/
 │       ├── __main__.py             # CLI 進入點
 │       ├── main.py                 # 主流程調度器
 │       ├── config.py               # 環境變數與常數
-│       ├── spotify.py              # Spotify API 整合（搜尋驗證、季度歸檔）
+│       ├── spotify.py              # Spotify API 整合
 │       ├── db.py                   # SQLite 曲目紀錄與去重
 │       ├── backup.py               # 季度 JSON 備份
-│       ├── notify.py               # LINE Messaging API 通知
+│       ├── export.py               # CSV/TXT/Spotify URL 匯出
+│       ├── notify.py               # LINE + Telegram + Slack 通知
+│       ├── stats.py                # 資料分析模組
+│       ├── web.py                  # Streamlit Web 介面
+│       ├── tunemymusic.py          # Apple Music 自動匯入
 │       └── scrapers/
-│           ├── __init__.py         # 擷取器註冊表
-│           ├── base.py             # 基礎擷取器抽象類別
+│           ├── __init__.py         # 擷取器註冊表（13 個）
+│           ├── base.py             # 基礎擷取器（含 Playwright）
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
 │           ├── lineofbestfit.py    # The Line of Best Fit
@@ -138,13 +168,36 @@ music-collector/
 │           ├── spin.py             # SPIN
 │           ├── rollingstone.py     # Rolling Stone
 │           ├── slant.py            # Slant Magazine
-│           ├── complex.py          # Complex
-│           └── residentadvisor.py  # Resident Advisor
+│           ├── complex.py          # Complex (+ Playwright)
+│           ├── residentadvisor.py  # Resident Advisor (+ Playwright)
+│           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
+│           ├── bandcamp.py         # Bandcamp Daily (RSS)
+│           └── quietus.py          # The Quietus (RSS)
+├── tests/
+│   ├── conftest.py                 # 全域 fixtures
+│   ├── fixtures/html/              # HTML fixture 檔案
+│   └── scrapers/                   # 擷取器測試（13 個）
 └── data/
-    ├── tracks.db                   # SQLite 資料庫（自動建立）
+    ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
-    └── backups/                    # 季度 JSON 備份（自動建立）
-        └── YYYY/QN.json
+    ├── backups/                    # 季度 JSON 備份
+    └── exports/                    # 匯出檔案
+```
+
+## Docker 部署
+
+```bash
+# 建置映像
+docker compose build
+
+# 執行完整蒐集
+docker compose run collector
+
+# 乾跑模式
+docker compose run collector --dry-run
+
+# 資料分析
+docker compose run collector --stats
 ```
 
 ## 每日自動排程
@@ -172,11 +225,13 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 | HTTP 請求 | httpx | 現代化、支援非同步 |
 | HTML 解析 | BeautifulSoup + lxml | 穩定、容錯佳 |
 | RSS 解析 | feedparser | 業界標準 |
+| JS 渲染 | Playwright（選用） | headless Chrome，處理 React/Next.js |
 | 音樂串流 | Spotify (spotipy) | Token 可自動更新，適合排程 |
 | 資料儲存 | SQLite | 零依賴、去重可靠 |
-| 推播通知 | LINE Messaging API (httpx) | 免額外套件、Token 自動產生 |
-
-> **為何不選 Apple Music？** Apple Music API 的 Token 無法自動更新（每次過期需手動重新授權），不適合無人值守的排程任務。
+| 推播通知 | httpx 直接呼叫 API | LINE + Telegram + Slack，免額外套件 |
+| Web 介面 | Streamlit（選用） | 零配置、直接讀取 SQLite |
+| CI/CD | GitHub Actions | Python 3.14 + uv + ruff + pytest |
+| 容器化 | Docker | python:3.14-slim + uv |
 
 ## 擴充與協作
 

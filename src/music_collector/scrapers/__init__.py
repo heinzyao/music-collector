@@ -14,6 +14,9 @@ from .rollingstone import RollingStoneScraper
 from .slant import SlantScraper
 from .complex import ComplexScraper
 from .residentadvisor import ResidentAdvisorScraper
+from .gorillavsbear import GorillaVsBearScraper
+from .bandcamp import BandcampDailyScraper
+from .quietus import TheQuietusScraper
 
 ALL_SCRAPERS = [
     PitchforkScraper(),         # Pitchfork — RSS 擷取
@@ -26,4 +29,7 @@ ALL_SCRAPERS = [
     SlantScraper(),             # Slant Magazine — HTML 擷取（樂評標題）
     ComplexScraper(),           # Complex — HTML 擷取（嘻哈/R&B 為主）
     ResidentAdvisorScraper(),   # Resident Advisor — HTML 擷取（電子音樂，JS 渲染受限）
+    GorillaVsBearScraper(),     # Gorilla vs. Bear — RSS 擷取（獨立音樂）
+    BandcampDailyScraper(),     # Bandcamp Daily — RSS 擷取（Album of the Day）
+    TheQuietusScraper(),        # The Quietus — RSS 擷取（英國獨立/實驗音樂）
 ]

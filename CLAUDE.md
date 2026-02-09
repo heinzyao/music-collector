@@ -2,13 +2,25 @@
 
 ## 專案概述
 
-自動從 10 個音樂評論網站蒐集推薦曲目，透過 Spotify API 建立播放清單。
+自動從 13 個音樂評論網站蒐集推薦曲目，透過 Spotify API 建立播放清單。
 
 ## 開發指令
 
 ```bash
 # 安裝依賴
 uv sync
+
+# 安裝含 Playwright 瀏覽器渲染
+uv sync --extra browser
+
+# 安裝含測試工具
+uv sync --extra test
+
+# 安裝含 Web 介面
+uv sync --extra web
+
+# 安裝所有可選依賴
+uv sync --all-extras
 
 # 乾跑測試（不需 Spotify 憑證）
 ./run.sh --dry-run
@@ -28,37 +40,64 @@ uv sync
 ./run.sh --export Q1 --format txt # 匯出為純文字
 ./run.sh --export Q1 --all        # 包含未在 Spotify 找到的曲目
 
+# 輸出 Spotify 播放清單連結（供轉換至 YouTube Music / Tidal）
+./run.sh --export-spotify-url
+
 # 自動匯入 Apple Music（開啟瀏覽器，需手動登入 Apple ID）
 ./run.sh --import Q1
 
+# 資料分析
+./run.sh --stats              # 總覽
+./run.sh --stats overlap      # 跨來源重疊分析
+./run.sh --stats sources      # 各來源效能比較
+
+# Web 介面
+./run.sh --web
+
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset
+
+# 執行測試
+PYTHONPATH=src uv run pytest tests/ -v
+
+# Docker 執行
+docker compose run collector --dry-run
 ```
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`。
 
 ## 架構要點
 
-- `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別與 `Track` 資料模型
-- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表，新增擷取器需在此註冊
+- `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
+- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（13 個擷取器）
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
-- `src/music_collector/export.py` — 匯出備份為 CSV/TXT，供 Apple Music 匯入工具使用
+- `src/music_collector/export.py` — 匯出備份為 CSV/TXT + Spotify URL 匯出
 - `src/music_collector/tunemymusic.py` — Selenium 自動化 TuneMyMusic 匯入 Apple Music
-- `src/music_collector/notify.py` — LINE Messaging API 通知（Channel ID + Secret 自動產生 Token）
+- `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
+- `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
+- `src/music_collector/web.py` — Streamlit Web 介面
 - `src/music_collector/main.py` — 主流程與 CLI
+- `tests/` — 82 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
 
 | 擷取器 | 方式 | 解析策略 |
 |--------|------|----------|
 | Pitchfork | HTML | `div[class*='SummaryItemWrapper']` 容器，`h3` 取曲名，`div sub-hed` 取藝人 |
+| Stereogum | RSS | feedparser + 分類過濾 + 多格式標題解析 |
 | NME | HTML | `/reviews/track` 頁面，敘述性標題解析（所有格 + 動詞短語分離） |
 | SPIN | HTML | `/new-music/` 頁面，typographic 引號匹配 + 動詞短語分離 |
 | Consequence | HTML | 引號提取曲名 + `_extract_artist_from_prefix()` 動詞邊界偵測 |
 | Line of Best Fit | HTML | 所有格 `'s` 優先策略 + 擴展動詞清單 |
-| Slant/Complex/RA | HTML | 含 JS 渲染偵測（Cloudflare/Next.js 空頁面檢查） |
+| Rolling Stone | HTML | 二階段：索引頁篩選推薦文章 → 文章頁提取曲目 |
+| Slant | HTML | 引號提取 + JS/Cloudflare 偵測 |
+| Complex | HTML | 多 URL 嘗試 + JS 偵測 + Playwright fallback |
+| Resident Advisor | HTML | Next.js 偵測 + Playwright fallback |
+| Gorilla vs. Bear | RSS | feedparser + mp3/video/on-blast 分類過濾 |
+| Bandcamp Daily | RSS | feedparser + Album of the Day 分類 + 逗號分隔解析 |
+| The Quietus | RSS | feedparser + Reviews 分類過濾 |
 
 ### 引號處理注意事項
 
@@ -71,7 +110,17 @@ uv sync
 1. 在 `src/music_collector/scrapers/` 建立新檔案
 2. 繼承 `BaseScraper`，實作 `fetch_tracks()` 回傳 `list[Track]`
 3. 在 `scrapers/__init__.py` 的 `ALL_SCRAPERS` 中註冊
-4. 用 `--dry-run` 測試
+4. 在 `tests/scrapers/` 新增對應測試
+5. 用 `--dry-run` 測試
+
+## Playwright 瀏覽器渲染
+
+用於 JS 重度渲染網站（Complex、Resident Advisor）：
+
+1. 安裝：`uv sync --extra browser && uv run playwright install chromium`
+2. 啟用：在 `.env` 設定 `ENABLE_PLAYWRIGHT=true`
+3. 行為：httpx 請求失敗時自動 fallback 至 Playwright headless 瀏覽器
+4. 未安裝/未啟用時靜默跳過，不影響其他來源
 
 ## 注意事項
 

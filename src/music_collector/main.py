@@ -14,10 +14,12 @@
 
 import argparse
 import logging
+from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
-from .export import export_playlist
+from .export import export_playlist, export_spotify_url
 from .tunemymusic import import_to_apple_music
+from .stats import show_stats
 from .config import DB_PATH, PLAYLIST_NAME
 from .db import init_db, save_track, track_exists, get_recent_tracks
 from .notify import send_notification
@@ -196,9 +198,24 @@ def main() -> None:
                         help="清除 Spotify 歌單與資料庫，重新蒐集")
     parser.add_argument("--import", metavar="QUARTER", dest="import_quarter",
                         help="匯出備份並自動透過 TuneMyMusic 匯入 Apple Music")
+    parser.add_argument("--export-spotify-url", action="store_true",
+                        help="輸出 Spotify 播放清單連結，供轉換至 YouTube Music / Tidal 等平台")
+    parser.add_argument("--stats", nargs="?", const="", metavar="SUBCOMMAND",
+                        help="資料分析：不帶參數顯示總覽，overlap 顯示重疊分析，sources 顯示來源比較")
+    parser.add_argument("--web", action="store_true",
+                        help="啟動 Streamlit Web 介面")
     args = parser.parse_args()
 
-    if args.import_quarter:
+    if args.web:
+        import subprocess
+        import sys
+        web_path = str(Path(__file__).parent / "web.py")
+        subprocess.run([sys.executable, "-m", "streamlit", "run", web_path])
+    elif args.stats is not None:
+        show_stats(args.stats if args.stats else None)
+    elif args.export_spotify_url:
+        export_spotify_url()
+    elif args.import_quarter:
         # 先匯出為 CSV（使用 Spotify 歌單名稱作為檔名，TuneMyMusic 會用檔名作為目標歌單名）
         csv_path = export_playlist(
             args.import_quarter,

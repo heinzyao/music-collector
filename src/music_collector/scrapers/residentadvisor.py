@@ -2,8 +2,8 @@
 
 來源：ra.co — 全球最大的電子音樂與 DJ 文化平台。
 擷取方式：嘗試從 /reviews/singles 頁面提取曲目。
-注意：RA 為 React 單頁應用，大部分內容由 JavaScript 動態渲染，
-靜態 HTML 擷取的結果可能非常有限。未來可考慮整合 Playwright。
+注意：RA 為 React 單頁應用，靜態 HTML 擷取受限。
+啟用 Playwright 時會自動 fallback 至瀏覽器渲染。
 """
 
 import logging
@@ -39,11 +39,20 @@ class ResidentAdvisorScraper(BaseScraper):
             # 偵測 JS 渲染：RA 為 Next.js 應用，靜態 HTML 幾乎無內容
             body_text = soup.get_text(strip=True)
             if len(body_text) < 500:
-                logger.warning(
-                    "Resident Advisor：網站為 Next.js 單頁應用，"
-                    "靜態 HTML 無有效內容。未來可考慮整合 Playwright 或逆向 GraphQL API。"
+                # 嘗試 Playwright fallback
+                html = self._get_rendered(
+                    url,
+                    wait_selector="[class*='track'], [class*='Track'], article, li a",
                 )
-                return tracks
+                if html:
+                    soup = BeautifulSoup(html, "lxml")
+                    logger.info("Resident Advisor：透過 Playwright 成功取得渲染頁面")
+                else:
+                    logger.warning(
+                        "Resident Advisor：網站為 Next.js 單頁應用，"
+                        "靜態 HTML 無有效內容。設定 ENABLE_PLAYWRIGHT=true 以啟用瀏覽器渲染。"
+                    )
+                    return tracks
 
             # RA 為 React 應用，嘗試從伺服器端渲染的 HTML 中提取
             for item in soup.select(

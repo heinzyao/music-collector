@@ -3,7 +3,7 @@
 來源：complex.com — 美國嘻哈、R&B、流行文化媒體。
 擷取方式：嘗試多個 URL（/music、/tag/best-new-music、/pigeons-and-planes），
 從文章標題中提取曲目資訊。
-注意：Complex 為 JS 重度渲染網站，擷取結果可能受限。
+注意：Complex 為 JS 重度渲染網站，啟用 Playwright 時會自動 fallback。
 """
 
 import logging
@@ -49,11 +49,17 @@ class ComplexScraper(BaseScraper):
                     "cloudflare",
                 ]
             ):
-                logger.warning(
-                    "Complex：網站為 JS 重度渲染，無法以靜態 HTML 擷取。"
-                    "未來可考慮整合 Playwright。"
-                )
-                return tracks
+                # 嘗試 Playwright fallback
+                html = self._get_rendered(url, wait_selector="article, .music, h2")
+                if html:
+                    soup = BeautifulSoup(html, "lxml")
+                    logger.info("Complex：透過 Playwright 成功取得渲染頁面")
+                else:
+                    logger.warning(
+                        "Complex：網站為 JS 重度渲染，無法以靜態 HTML 擷取。"
+                        "設定 ENABLE_PLAYWRIGHT=true 以啟用瀏覽器渲染。"
+                    )
+                    return tracks
 
             for heading in soup.select("h2 a, h3 a, article a, .post-title a")[
                 :MAX_TRACKS_PER_SOURCE

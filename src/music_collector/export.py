@@ -179,6 +179,35 @@ def export_playlist(
         return export_csv(query, spotify_only=spotify_only, playlist_name=playlist_name)
 
 
+def export_spotify_url() -> None:
+    """輸出 Spotify 播放清單連結，供使用者透過 TuneMyMusic 或 Soundiiz 轉換至其他平台。
+
+    支援轉換至：YouTube Music、Tidal、Apple Music 等。
+    """
+    from .spotify import get_spotify_client, get_or_create_playlist
+
+    try:
+        sp = get_spotify_client()
+        playlist_id = get_or_create_playlist(sp)
+        playlist = sp.playlist(playlist_id, fields="external_urls,name,tracks(total)")
+        url = playlist["external_urls"]["spotify"]
+        name = playlist["name"]
+        total = playlist["tracks"]["total"]
+
+        print(f"\n🎵 Spotify 播放清單：{name}")
+        print(f"   曲目數：{total} 首")
+        print(f"   連結：{url}")
+        print()
+        print("📱 轉換至其他平台：")
+        print("   1. TuneMyMusic — https://www.tunemymusic.com/")
+        print("      選擇 Spotify → YouTube Music / Tidal / Apple Music")
+        print("   2. Soundiiz — https://soundiiz.com/")
+        print("      選擇 Spotify → 任意目標平台")
+    except Exception as e:
+        logger.error(f"取得 Spotify 播放清單失敗：{e}")
+        print(f"錯誤：{e}")
+
+
 def _show_available_backups() -> None:
     """顯示可用的備份檔案。"""
     candidates = sorted(BACKUP_DIR.glob("**/Q*.json"))

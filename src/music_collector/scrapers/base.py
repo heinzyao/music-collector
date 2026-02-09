@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from ..config import REQUEST_TIMEOUT, USER_AGENT
+from ..config import ENABLE_PLAYWRIGHT, REQUEST_TIMEOUT, USER_AGENT
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,62 @@ class BaseScraper(ABC):
                 if artist and title:
                     return artist, title
         return None
+
+    def _get_rendered(self, url: str, wait_selector: str = "body") -> str | None:
+        """使用 Playwright 取得 JS 渲染後的頁面 HTML。
+
+        需安裝 playwright 可選依賴（uv sync --extra browser）
+        並設定 ENABLE_PLAYWRIGHT=true 環境變數。
+        回傳 HTML 字串，或 None（Playwright 未安裝/未啟用/失敗時）。
+        """
+        if not ENABLE_PLAYWRIGHT:
+            return None
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            logger.debug("Playwright 未安裝，跳過 JS 渲染。安裝：uv sync --extra browser")
+            return None
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
+                context = browser.new_context(
+                    user_agent=USER_AGENT,
+                    viewport={"width": 1280, "height": 720},
+                )
+                page = context.new_page()
+
+                # 隱藏 webdriver 特徵
+                page.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => false})"
+                )
+
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+                try:
+                    page.wait_for_selector(wait_selector, timeout=10000)
+                except Exception:
+                    logger.debug(f"等待選擇器 {wait_selector} 逾時，繼續擷取")
+
+                # 等待網路靜止（React/Next.js hydration）
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
+
+                html = page.content()
+                page.close()
+                context.close()
+                browser.close()
+                return html
+
+        except Exception as e:
+            logger.warning(f"Playwright 渲染失敗 {url}：{e}")
+            return None
 
     @staticmethod
     def clean_text(text: str) -> str:

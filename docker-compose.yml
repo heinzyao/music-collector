@@ -1,0 +1,11 @@
+services:
+  collector:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./.spotify_cache:/app/.spotify_cache
+    # 預設執行完整蒐集流程，可覆寫指令
+    # docker compose run collector --dry-run
+    # docker compose run collector --recent 7
+    # docker compose run collector --stats
