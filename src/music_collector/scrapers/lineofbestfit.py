@@ -40,17 +40,9 @@ class LineOfBestFitScraper(BaseScraper):
                 artist, title = parsed
                 tracks.append(Track(artist=artist, title=title, source=self.name))
 
-        # 以 (artist, title) 去重（同一頁面可能有重複連結）
-        seen = set()
-        unique_tracks = []
-        for t in tracks:
-            key = (t.artist.lower(), t.title.lower())
-            if key not in seen:
-                seen.add(key)
-                unique_tracks.append(t)
-
-        logger.info(f"Line of Best Fit：找到 {len(unique_tracks)} 首曲目")
-        return unique_tracks
+        unique = self._deduplicate_tracks(tracks)
+        logger.info(f"Line of Best Fit：找到 {len(unique)} 首曲目")
+        return unique
 
     @staticmethod
     def _parse_lobf_title(text: str) -> tuple[str, str] | None:
@@ -98,195 +90,32 @@ class LineOfBestFitScraper(BaseScraper):
             if artist:
                 return artist, title
 
-        # === 策略 3：擴充動詞清單切分 ===
-        verbs = [
-            "shares",
-            "share",
-            "unveils",
-            "unveil",
-            "releases",
-            "release",
-            "announces",
-            "announce",
-            "debuts",
-            "debut",
-            "delivers",
-            "deliver",
-            "drops",
-            "drop",
-            "returns",
-            "return",
-            "confronts",
-            "confront",
-            "explores",
-            "explore",
-            "channels",
-            "channel",
-            "captures",
-            "capture",
-            "embraces",
-            "embrace",
-            "numbs",
-            "numb",
-            "skewers",
-            "skewer",
-            "soars",
-            "soar",
-            "dives",
-            "dive",
-            "finds",
-            "find",
-            "reveals",
-            "reveal",
-            "offers",
-            "offer",
-            "brings",
-            "bring",
-            "opens",
-            "open",
-            "closes",
-            "close",
-            "paints",
-            "paint",
-            "wrestles",
-            "wrestle",
-            "navigates",
-            "navigate",
-            "plays",
-            "play",
-            "feels",
-            "feel",
-            "demands",
-            "demand",
-            "draws",
-            "draw",
-            "moves",
-            "move",
-            "gives",
-            "give",
-            "longs",
-            "long",
-            "marries",
-            "marry",
-            "steers",
-            "steer",
-            "wades",
-            "wade",
-            "resurrects",
-            "resurrect",
-            "sharpens",
-            "sharpen",
-            "does",
-            "do",
-            "is",
-            "are",
-            "has",
-            "have",
-            "gets",
-            "get",
-            "freezes",
-            "freeze",
-            "takes",
-            "take",
-            "makes",
-            "make",
-            "goes",
-            "go",
-            "comes",
-            "come",
-            "puts",
-            "put",
-            "sets",
-            "set",
-            "rides",
-            "ride",
-            "rises",
-            "rise",
-            "leads",
-            "lead",
-            "hits",
-            "hit",
-            "cuts",
-            "cut",
-            "runs",
-            "run",
-            "turns",
-            "turn",
-            "keeps",
-            "keep",
-            "holds",
-            "hold",
-            "stands",
-            "stand",
-            "tells",
-            "tell",
-            "calls",
-            "call",
-            "shows",
-            "show",
-            "wants",
-            "want",
-            "needs",
-            "need",
-            "looks",
-            "look",
-            "creates",
-            "create",
-            "builds",
-            "build",
-            "picks",
-            "pick",
-            "teams",
-            "team",
-            "joins",
-            "join",
-            "taps",
-            "tap",
-            "imagines",
-            "imagine",
-            "weaves",
-            "weave",
-            "traces",
-            "trace",
-            "balances",
-            "balance",
-            "blends",
-            "blend",
-            "crafts",
-            "craft",
-            "evokes",
-            "evoke",
-            "reflects",
-            "reflect",
-            "searches",
-            "search",
-            "pours",
-            "pour",
-            "digs",
-            "dig",
-            "strips",
-            "strip",
-            "transforms",
-            "transform",
-            "breaks",
-            "break",
-        ]
-        prefix_lower = prefix.lower()
-        best_idx = len(prefix)
-        for verb in verbs:
-            # 用字邊界匹配（確保是完整單字）
-            pattern = f" {verb} "
-            idx = prefix_lower.find(pattern)
-            if idx != -1 and idx < best_idx:
-                best_idx = idx
-
-        if best_idx < len(prefix):
-            artist = prefix[:best_idx].strip()
-        else:
-            artist = prefix
-
+        # === 策略 3：動詞 regex 切分 ===
+        artist = BaseScraper._extract_artist_before_verb(prefix, _VERB_RE)
         artist = artist.strip().strip(",").strip()
         if artist and title:
             return artist, title
 
         return None
+
+
+# 動詞模式：用於辨識藝人名結束、描述文字開始的位置
+_VERB_RE = re.compile(
+    r"\b(?:"
+    r"shares?|unveils?|releases?|announces?|debuts?|delivers?|drops?|"
+    r"returns?|confronts?|explores?|channels?|captures?|embraces?|"
+    r"numbs?|skewers?|soars?|dives?|finds?|reveals?|offers?|"
+    r"brings?|opens?|closes?|paints?|wrestles?|navigates?|"
+    r"plays?|feels?|demands?|draws?|moves?|gives?|longs?|"
+    r"marries|marry|steers?|wades?|resurrects?|sharpens?|"
+    r"does|do|is|are|has|have|gets?|freezes?|"
+    r"takes?|makes?|goes|go|comes?|puts?|sets?|"
+    r"rides?|rises?|leads?|hits?|cuts?|runs?|turns?|"
+    r"keeps?|holds?|stands?|tells?|calls?|shows?|"
+    r"wants?|needs?|looks?|creates?|builds?|picks?|"
+    r"teams?|joins?|taps?|imagines?|weaves?|traces?|"
+    r"balances?|blends?|crafts?|evokes?|reflects?|"
+    r"searches|search|pours?|digs?|strips?|transforms?|breaks?"
+    r")\b",
+    re.IGNORECASE,
+)

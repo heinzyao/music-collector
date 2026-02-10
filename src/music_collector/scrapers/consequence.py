@@ -94,7 +94,7 @@ class ConsequenceScraper(BaseScraper):
             prefix = text[: m.start()].strip()
 
             # 從 prefix 中去除動詞片語，只保留藝人名
-            artist = _extract_artist_from_prefix(prefix)
+            artist = BaseScraper._extract_artist_before_verb(prefix, _VERB_PATTERNS)
 
             # 移除藝人名末尾的所有格 's 或 '
             artist = re.sub(r"['\u2019]s?\s*$", "", artist).strip()
@@ -135,37 +135,3 @@ _VERB_PATTERNS = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-
-
-def _extract_artist_from_prefix(prefix: str) -> str:
-    """從標題前綴中提取藝人名，去除動詞片語。
-
-    例如：
-      "Poison Ruin Go Medieval Motörhead on" → "Poison Ruin"
-      "Black Veil Brides Continue Artistic Leap with Alt-Metal Banger" → "Black Veil Brides"
-      "Sevendust Lock into Their Signature Groove on" → "Sevendust"
-      "Exodus" → "Exodus"  (所有格已在呼叫前去除)
-      "The Casualties" → "The Casualties" (所有格已在呼叫前去除)
-    """
-    if not prefix:
-        return prefix
-
-    # 逐字掃描，找到第一個像動詞的單字
-    words = prefix.split()
-    if not words:
-        return prefix
-
-    # 跳過第一個字（可能是 "The"、藝人名的一部分）
-    # 從第二個字開始檢查是否為動詞
-    for i in range(1, len(words)):
-        word = words[i]
-        # 去除標點後檢查
-        clean_word = re.sub(r"[^\w'-]", "", word)
-        if _VERB_PATTERNS.fullmatch(clean_word):
-            # 確保前面至少有一個有意義的字作為藝人名
-            candidate = " ".join(words[:i]).strip()
-            if candidate:
-                return candidate
-
-    # 沒找到動詞：整個 prefix 就是藝人名
-    return prefix

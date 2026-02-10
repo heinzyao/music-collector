@@ -51,3 +51,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # ── Slack 通知（選用）──
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
+
+
+def get_quarter(month: int) -> int:
+    """回傳季度編號（1–4）。"""
+    return (month - 1) // 3 + 1

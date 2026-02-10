@@ -18,6 +18,7 @@ from .config import (
     SPOTIFY_CLIENT_ID,
     SPOTIFY_CLIENT_SECRET,
     SPOTIFY_REDIRECT_URI,
+    get_quarter,
 )
 
 logger = logging.getLogger(__name__)
@@ -196,11 +197,6 @@ def clear_playlist(sp: spotipy.Spotify, playlist_id: str) -> int:
 # ── 播放清單合併與季度歸檔 ──
 
 
-def _get_quarter(year: int, month: int) -> int:
-    """回傳季度編號（1–4）。"""
-    return (month - 1) // 3 + 1
-
-
 def migrate_old_playlist(
     sp: spotipy.Spotify,
     new_playlist_id: str,
@@ -243,14 +239,14 @@ def archive_previous_quarters(sp: spotipy.Spotify, playlist_id: str) -> None:
 
     now = datetime.now(timezone.utc)
     current_year = now.year
-    current_q = _get_quarter(now.year, now.month)
+    current_q = get_quarter(now.month)
 
     # 依季度分組（僅選出不屬於當季的曲目）
     to_archive: dict[tuple[int, int], list[str]] = {}
     for t in all_tracks:
         added = datetime.fromisoformat(t["added_at"].replace("Z", "+00:00"))
         y = added.year
-        q = _get_quarter(y, added.month)
+        q = get_quarter(added.month)
         if (y, q) != (current_year, current_q):
             to_archive.setdefault((y, q), []).append(t["uri"])
 

@@ -70,14 +70,6 @@ class ResidentAdvisorScraper(BaseScraper):
             if tracks:
                 break
 
-        # 去重（同一連結可能被多個選擇器匹配）
-        seen = set()
-        unique = []
-        for t in tracks:
-            key = (t.artist.lower(), t.title.lower())
-            if key not in seen:
-                seen.add(key)
-                unique.append(t)
-
+        unique = self._deduplicate_tracks(tracks)
         logger.info(f"Resident Advisor：找到 {len(unique)} 首曲目")
         return unique

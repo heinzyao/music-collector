@@ -38,16 +38,8 @@ class SlantScraper(BaseScraper):
             soup = BeautifulSoup(resp.text, "lxml")
 
             # 偵測 JS 渲染 / Cloudflare 挑戰頁
-            body_text = soup.get_text(strip=True).lower()
-            if any(
-                indicator in body_text
-                for indicator in [
-                    "enable javascript",
-                    "checking your browser",
-                    "just a moment",
-                    "cloudflare",
-                ]
-            ):
+            body_text = soup.get_text(strip=True)
+            if self._is_js_blocked(body_text):
                 logger.warning(
                     "Slant：網站被 Cloudflare JS 挑戰阻擋，無法以靜態 HTML 擷取。"
                     "未來可考慮整合 Playwright。"

@@ -10,15 +10,10 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import BACKUP_DIR
+from .config import BACKUP_DIR, get_quarter
 from .scrapers.base import Track
 
 logger = logging.getLogger(__name__)
-
-
-def _get_quarter(month: int) -> int:
-    """回傳季度編號（1–4）。"""
-    return (month - 1) // 3 + 1
 
 
 def save_backup(
@@ -35,7 +30,7 @@ def save_backup(
         return
 
     now = datetime.now(timezone.utc)
-    quarter = _get_quarter(now.month)
+    quarter = get_quarter(now.month)
     year_dir = BACKUP_DIR / str(now.year)
     year_dir.mkdir(parents=True, exist_ok=True)
     backup_file = year_dir / f"Q{quarter}.json"

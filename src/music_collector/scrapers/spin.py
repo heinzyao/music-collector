@@ -44,15 +44,7 @@ class SpinScraper(BaseScraper):
                 artist, title = parsed
                 tracks.append(Track(artist=artist, title=title, source=self.name))
 
-        # 去重
-        seen = set()
-        unique = []
-        for t in tracks:
-            key = (t.artist.lower(), t.title.lower())
-            if key not in seen:
-                seen.add(key)
-                unique.append(t)
-
+        unique = self._deduplicate_tracks(tracks)
         logger.info(f"SPIN：找到 {len(unique)} 首曲目")
         return unique
 
@@ -134,7 +126,7 @@ class SpinScraper(BaseScraper):
         ).strip()
 
         # 從 prefix 中提取藝人名（去除動詞片語）
-        artist = _extract_artist(prefix)
+        artist = BaseScraper._extract_artist_before_verb(prefix, _VERB_RE)
 
         if artist and title:
             return artist, title
@@ -158,20 +150,3 @@ _VERB_RE = re.compile(
     r"Is|Are|Has|Have|Had|Was|Were|Will|Would|Still"
     r")\b",
 )
-
-
-def _extract_artist(prefix: str) -> str:
-    """從標題前綴中提取藝人名，去除動詞片語。"""
-    words = prefix.split()
-    if not words:
-        return prefix
-
-    for i in range(1, len(words)):
-        word = words[i]
-        clean_word = re.sub(r"[^\w'-]", "", word)
-        if _VERB_RE.fullmatch(clean_word):
-            candidate = " ".join(words[:i]).strip()
-            if candidate:
-                return candidate
-
-    return prefix

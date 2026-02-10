@@ -31,6 +31,13 @@ class BaseScraper(ABC):
     """
     name: str = "base"
 
+    _JS_BLOCK_INDICATORS = (
+        "enable javascript",
+        "checking your browser",
+        "just a moment",
+        "cloudflare",
+    )
+
     @abstractmethod
     def fetch_tracks(self) -> list[Track]:
         """擷取曲目清單，回傳 Track 物件列表。"""
@@ -114,6 +121,48 @@ class BaseScraper(ABC):
         except Exception as e:
             logger.warning(f"Playwright 渲染失敗 {url}：{e}")
             return None
+
+    @staticmethod
+    def _is_js_blocked(text: str) -> bool:
+        """檢查頁面是否被 JS 渲染 / Cloudflare 挑戰阻擋。"""
+        lower = text.lower()
+        return any(ind in lower for ind in BaseScraper._JS_BLOCK_INDICATORS)
+
+    @staticmethod
+    def _extract_artist_before_verb(prefix: str, verb_pattern: re.Pattern[str]) -> str:
+        """從標題前綴中提取藝人名，遇到第一個動詞即截斷。
+
+        逐字掃描 prefix（跳過第一個字），遇到符合 verb_pattern 的單字時，
+        取該字之前的所有文字作為藝人名。
+
+        Args:
+            prefix: 標題中引號前的文字。
+            verb_pattern: 已編譯的動詞正規表達式（用於 fullmatch）。
+        """
+        words = prefix.split()
+        if not words:
+            return prefix
+
+        for i in range(1, len(words)):
+            clean_word = re.sub(r"[^\w'-]", "", words[i])
+            if verb_pattern.fullmatch(clean_word):
+                candidate = " ".join(words[:i]).strip()
+                if candidate:
+                    return candidate
+
+        return prefix
+
+    @staticmethod
+    def _deduplicate_tracks(tracks: list[Track]) -> list[Track]:
+        """以 (artist, title) 大小寫不敏感去重。"""
+        seen: set[tuple[str, str]] = set()
+        unique: list[Track] = []
+        for t in tracks:
+            key = (t.artist.lower(), t.title.lower())
+            if key not in seen:
+                seen.add(key)
+                unique.append(t)
+        return unique
 
     @staticmethod
     def clean_text(text: str) -> str:

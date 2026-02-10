@@ -75,15 +75,7 @@ class PitchforkScraper(BaseScraper):
                                 Track(artist=artist, title=cleaned, source=self.name)
                             )
 
-        # 去重（以防 HTML 結構變動導致重複）
-        seen = set()
-        unique = []
-        for t in tracks:
-            key = (t.artist.lower(), t.title.lower())
-            if key not in seen:
-                seen.add(key)
-                unique.append(t)
-
+        unique = self._deduplicate_tracks(tracks)
         logger.info(f"Pitchfork：找到 {len(unique)} 首曲目")
         return unique
 

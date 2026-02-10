@@ -40,15 +40,7 @@ class ComplexScraper(BaseScraper):
 
             # 偵測 JS 渲染：如果頁面內容極少或含有 JS 挑戰標記
             body_text = soup.get_text(strip=True)
-            if len(body_text) < 200 or any(
-                indicator in body_text.lower()
-                for indicator in [
-                    "enable javascript",
-                    "checking your browser",
-                    "just a moment",
-                    "cloudflare",
-                ]
-            ):
+            if len(body_text) < 200 or self._is_js_blocked(body_text):
                 # 嘗試 Playwright fallback
                 html = self._get_rendered(url, wait_selector="article, .music, h2")
                 if html:
