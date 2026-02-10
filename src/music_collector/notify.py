@@ -49,6 +49,15 @@ def send_notification(
     _send_slack(message)
 
 
+def send_no_new_tracks_notification() -> None:
+    """發送「今日無新曲目」通知至所有已設定的通道。"""
+    message = "🎵 Music Collector 執行完成\n\n今日無新曲目。"
+
+    _send_line(message)
+    _send_telegram(message)
+    _send_slack(message)
+
+
 # ── LINE Messaging API ──
 
 

@@ -21,7 +21,7 @@ from .export import export_playlist, export_spotify_url
 from .stats import show_stats
 from .config import DB_PATH, PLAYLIST_NAME
 from .db import init_db, save_track, track_exists, get_recent_tracks
-from .notify import send_notification
+from .notify import send_no_new_tracks_notification, send_notification
 from .scrapers import ALL_SCRAPERS
 from .scrapers.base import Track
 from .spotify import (
@@ -92,6 +92,11 @@ def run(dry_run: bool = False) -> None:
 
     if not new_tracks:
         logger.info("今日無新曲目。")
+        if not dry_run:
+            try:
+                send_no_new_tracks_notification()
+            except Exception as e:
+                logger.warning(f"通知失敗：{e}")
         return
 
     # 乾跑模式：僅列出擷取結果，不操作 Spotify / 不備份 / 不通知
@@ -155,11 +160,11 @@ def run(dry_run: bool = False) -> None:
     except Exception as e:
         logger.warning(f"備份失敗：{e}")
 
-    # LINE 通知
+    # 通知（LINE / Telegram / Slack）
     try:
         send_notification(new_tracks, spotify_uris, not_found)
     except Exception as e:
-        logger.warning(f"LINE 通知失敗：{e}")
+        logger.warning(f"通知失敗：{e}")
 
     logger.info("完成。")
 
