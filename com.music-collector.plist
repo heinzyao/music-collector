@@ -12,6 +12,7 @@
         <string>python</string>
         <string>-m</string>
         <string>music_collector</string>
+        <string>--apple-music</string>
     </array>
 
     <key>WorkingDirectory</key>

@@ -83,7 +83,7 @@ def reset() -> None:
     run(dry_run=False)
 
 
-def run(dry_run: bool = False) -> None:
+def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     """主流程：擷取 → Spotify 搜尋 → 備份 → 通知。"""
     logger.info("開始音樂蒐集...")
 
@@ -160,9 +160,41 @@ def run(dry_run: bool = False) -> None:
     except Exception as e:
         logger.warning(f"備份失敗：{e}")
 
+    # Apple Music 自動匯入
+    apple_music_status = None
+    if sync_apple_music:
+        try:
+            logger.info("開始 Apple Music 同步流程...")
+            # 1. 匯出當前季度的 Spotify 歌單為 CSV
+            # 這裡我們使用 export_playlist，但需要確定季度
+            # 為了簡化，我們先匯出「當前主播放清單」的內容，但 export_playlist 需要季度參數
+            # 替代方案：匯出剛才收集到的 new_tracks，或者直接使用「當前季度」
+            # 我們使用 "Fresh" 作為特殊標記來匯出主清單，或者根據當前日期計算季度
+            # 這裡簡單起見，我們匯出當前日期對應的季度
+            from datetime import datetime
+            from .export import get_current_quarter, export_playlist
+            
+            current_quarter = get_current_quarter()
+            csv_path = export_playlist(
+                current_quarter,
+                fmt="csv",
+                include_all=False,
+                playlist_name=PLAYLIST_NAME,
+            )
+            
+            if csv_path:
+                from .tunemymusic import import_to_apple_music
+                success = import_to_apple_music(str(csv_path))
+                apple_music_status = "匯入成功" if success else "匯入失敗"
+            else:
+                apple_music_status = "匯出 CSV 失敗"
+        except Exception as e:
+            logger.error(f"Apple Music 同步發生錯誤：{e}")
+            apple_music_status = f"發生錯誤 ({e})"
+
     # 通知（LINE / Telegram / Slack）
     try:
-        send_notification(new_tracks, spotify_uris, not_found)
+        send_notification(new_tracks, spotify_uris, not_found, apple_music_status)
     except Exception as e:
         logger.warning(f"通知失敗：{e}")
 
@@ -237,6 +269,11 @@ def main() -> None:
         metavar="SUBCOMMAND",
         help="資料分析：不帶參數顯示總覽，overlap 顯示重疊分析，sources 顯示來源比較",
     )
+    parser.add_argument(
+        "--apple-music",
+        action="store_true",
+        help="在蒐集完成後，自動將新歌單同步至 Apple Music（需使用瀏覽器）",
+    )
     parser.add_argument("--web", action="store_true", help="啟動 Streamlit Web 介面")
     args = parser.parse_args()
 
@@ -274,4 +311,4 @@ def main() -> None:
     elif args.reset:
         reset()
     else:
-        run(dry_run=args.dry_run)
+        run(dry_run=args.dry_run, sync_apple_music=args.apple_music)

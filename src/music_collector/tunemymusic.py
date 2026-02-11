@@ -43,6 +43,11 @@ def _create_driver() -> webdriver.Chrome:
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option("useAutomationExtension", False)
 
+    # 設定使用者資料目錄以保存登入狀態
+    user_data_dir = Path("data/browser_profile").resolve()
+    user_data_dir.mkdir(parents=True, exist_ok=True)
+    options.add_argument(f"user-data-dir={user_data_dir}")
+
     driver = webdriver.Chrome(options=options)
     # 隱藏 webdriver 特徵
     driver.execute_script(

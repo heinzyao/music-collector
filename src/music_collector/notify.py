@@ -34,6 +34,7 @@ def send_notification(
     tracks: list[Track],
     spotify_found: list[str],
     spotify_not_found: list[Track],
+    apple_music_status: str | None = None,
 ) -> None:
     """發送通知摘要至所有已設定的通道。
 
@@ -41,8 +42,9 @@ def send_notification(
         tracks: 本次新發現的曲目清單。
         spotify_found: 成功配對的 Spotify URI 清單。
         spotify_not_found: 在 Spotify 上未找到的曲目清單。
+        apple_music_status: Apple Music 匯入狀態訊息。
     """
-    message = _build_message(tracks, spotify_found, spotify_not_found)
+    message = _build_message(tracks, spotify_found, spotify_not_found, apple_music_status)
 
     _send_line(message)
     _send_telegram(message)
@@ -161,6 +163,7 @@ def _build_message(
     tracks: list[Track],
     spotify_found: list[str],
     spotify_not_found: list[Track],
+    apple_music_status: str | None = None,
 ) -> str:
     """組合通知文字。"""
     total = len(tracks)
@@ -173,13 +176,20 @@ def _build_message(
         f"  {source}: {count}" for source, count in source_counts.most_common()
     )
 
-    return (
+    msg = (
         f"🎵 Music Collector 執行完成\n"
         f"\n"
         f"新曲目：{total} 首\n"
         f"Spotify 配對：{found} 首\n"
         f"未找到：{not_found} 首\n"
+    )
+
+    if apple_music_status:
+        msg += f"Apple Music：{apple_music_status}\n"
+
+    msg += (
         f"\n"
         f"各來源貢獻：\n"
         f"{source_lines}"
     )
+    return msg

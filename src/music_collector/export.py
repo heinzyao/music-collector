@@ -47,6 +47,13 @@ def _load_backup(path: Path) -> list[dict]:
         return []
 
 
+def get_current_quarter() -> str:
+    """取得當前季度的標籤（如 '2026Q1'）。"""
+    now = datetime.now()
+    quarter = (now.month - 1) // 3 + 1
+    return f"{now.year}Q{quarter}"
+
+
 def export_csv(query: str, spotify_only: bool = True, playlist_name: str | None = None) -> Path | None:
     """匯出備份為 CSV 格式。
 
