@@ -2,7 +2,7 @@
 
 ## 專案概述
 
-自動從 13 個音樂評論網站蒐集推薦曲目，透過 Spotify API 建立播放清單。
+自動從 13 個音樂評論網站蒐集推薦曲目，同步至 Spotify 與 Apple Music 播放清單。
 
 ## 開發指令
 
@@ -121,6 +121,52 @@ docker compose run collector --dry-run
 2. 啟用：在 `.env` 設定 `ENABLE_PLAYWRIGHT=true`
 3. 行為：httpx 請求失敗時自動 fallback 至 Playwright headless 瀏覽器
 4. 未安裝/未啟用時靜默跳過，不影響其他來源
+
+## TuneMyMusic Apple Music 自動匯入
+
+### 流程架構
+
+```
+匯出 CSV → Selenium 開啟 TuneMyMusic → 上傳 CSV → 欄位對應 → 選擇歌單
+→ 選擇 Apple Music → 連接 → Apple ID 彈窗授權 → 開始轉移 → 完成
+```
+
+所有步驟在同一 URL (`/transfer`) 上以 SPA 方式切換，共 4 個步驟（STEP 1/4 ~ 4/4）。
+
+### Selector 策略
+
+TuneMyMusic 使用 Next.js + CSS Modules，class name 為 hash（如 `MusicServiceBlock-module-scss-module__7DOuaW__Block`），每次建置都會變更。因此：
+
+- **使用 `name` 屬性**（穩定、不受語系與 CSS 模組影響）：
+  - `button[name='FromFile']` — 選擇上傳來源
+  - `button[name='Apple']` — 選擇 Apple Music 目標
+  - `button[name='stickyButton']` — Continue / Choose Destination（各步驟共用）
+- **避免 CSS class selector** — 所有 class 皆為 CSS module hash
+- **XPath fallback** 限定為 `//button[...]` 而非 `//*[...]`，避免匹配無關元素
+
+### Apple ID 授權流程
+
+1. 點擊 Connect → MusicKit JS 發起 OAuth
+2. 瀏覽器開啟新視窗至 `idmsa.apple.com` 供使用者登入
+3. 使用者完成登入 → 彈窗自動關閉
+4. 主頁面收到授權 token → 進入轉移步驟
+
+程式碼透過 `window_handles` 偵測彈窗、等待關閉、切回主視窗。
+
+### 反偵測措施
+
+MusicKit JS 會偵測無痕模式（透過 IndexedDB quota、Service Worker、storage API）。`_create_driver()` 中的防護：
+
+- `Page.addScriptToEvaluateOnNewDocument` 注入反偵測腳本（每個頁面載入都生效）
+- `navigator.storage.estimate` quota 偽裝（無痕模式 < 120MB → 偽裝為 4GB）
+- 第三方 cookie 允許（Apple OAuth 需要）
+- 持久化 `user-data-dir` 保存登入狀態
+
+### 已知限制
+
+- 首次使用需手動在 Apple ID 彈窗完成登入（約 30 秒）
+- 後續執行若 session 仍有效則可全自動
+- `data/browser_profile/` 儲存 Chrome profile（不可推送至 Git）
 
 ## 注意事項
 

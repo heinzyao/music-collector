@@ -13,3 +13,6 @@ wheels/
 .env
 data/
 .spotify_cache
+
+# macOS
+.DS_Store

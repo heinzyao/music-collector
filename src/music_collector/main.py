@@ -21,7 +21,11 @@ from .export import export_playlist, export_spotify_url
 from .stats import show_stats
 from .config import DB_PATH, PLAYLIST_NAME
 from .db import init_db, save_track, track_exists, get_recent_tracks
-from .notify import send_no_new_tracks_notification, send_notification
+from .notify import (
+    send_apple_music_notification,
+    send_no_new_tracks_notification,
+    send_notification,
+)
 from .scrapers import ALL_SCRAPERS
 from .scrapers.base import Track
 from .spotify import (
@@ -41,6 +45,15 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+def _count_csv_tracks(csv_path: Path) -> int | None:
+    """計算 CSV 檔案中的曲目數量（不含標題列）。"""
+    try:
+        lines = csv_path.read_text(encoding="utf-8").strip().splitlines()
+        return max(len(lines) - 1, 0)  # 扣除標題列
+    except Exception:
+        return None
 
 
 def collect_tracks() -> list[Track]:
@@ -173,7 +186,7 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
             # 這裡簡單起見，我們匯出當前日期對應的季度
             from datetime import datetime
             from .export import get_current_quarter, export_playlist
-            
+
             current_quarter = get_current_quarter()
             csv_path = export_playlist(
                 current_quarter,
@@ -181,16 +194,35 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
                 include_all=False,
                 playlist_name=PLAYLIST_NAME,
             )
-            
+
             if csv_path:
                 from .tunemymusic import import_to_apple_music
+
+                track_count = _count_csv_tracks(csv_path)
                 success = import_to_apple_music(str(csv_path))
                 apple_music_status = "匯入成功" if success else "匯入失敗"
+                try:
+                    send_apple_music_notification(
+                        success=success,
+                        track_count=track_count,
+                        playlist_name=PLAYLIST_NAME,
+                        error=None if success else "自動匯入流程失敗",
+                    )
+                except Exception as e:
+                    logger.warning(f"Apple Music 通知失敗：{e}")
             else:
                 apple_music_status = "匯出 CSV 失敗"
+                try:
+                    send_apple_music_notification(success=False, error="匯出 CSV 失敗")
+                except Exception as e:
+                    logger.warning(f"Apple Music 通知失敗：{e}")
         except Exception as e:
             logger.error(f"Apple Music 同步發生錯誤：{e}")
             apple_music_status = f"發生錯誤 ({e})"
+            try:
+                send_apple_music_notification(success=False, error=str(e))
+            except Exception as ne:
+                logger.warning(f"Apple Music 通知失敗：{ne}")
 
     # 通知（LINE / Telegram / Slack）
     try:
@@ -298,7 +330,22 @@ def main() -> None:
         if csv_path:
             from .tunemymusic import import_to_apple_music
 
-            import_to_apple_music(str(csv_path))
+            track_count = _count_csv_tracks(csv_path)
+            success = import_to_apple_music(str(csv_path))
+            try:
+                send_apple_music_notification(
+                    success=success,
+                    track_count=track_count,
+                    playlist_name=PLAYLIST_NAME,
+                    error=None if success else "匯入流程失敗",
+                )
+            except Exception as e:
+                logger.warning(f"Apple Music 通知失敗：{e}")
+        else:
+            try:
+                send_apple_music_notification(success=False, error="匯出 CSV 失敗")
+            except Exception as e:
+                logger.warning(f"Apple Music 通知失敗：{e}")
     elif args.export:
         export_playlist(args.export, fmt=args.format, include_all=args.include_all)
     elif args.backup is not None:

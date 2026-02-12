@@ -44,7 +44,9 @@ def send_notification(
         spotify_not_found: 在 Spotify 上未找到的曲目清單。
         apple_music_status: Apple Music 匯入狀態訊息。
     """
-    message = _build_message(tracks, spotify_found, spotify_not_found, apple_music_status)
+    message = _build_message(
+        tracks, spotify_found, spotify_not_found, apple_music_status
+    )
 
     _send_line(message)
     _send_telegram(message)
@@ -54,6 +56,27 @@ def send_notification(
 def send_no_new_tracks_notification() -> None:
     """發送「今日無新曲目」通知至所有已設定的通道。"""
     message = "🎵 Music Collector 執行完成\n\n今日無新曲目。"
+
+    _send_line(message)
+    _send_telegram(message)
+    _send_slack(message)
+
+
+def send_apple_music_notification(
+    success: bool,
+    track_count: int | None = None,
+    playlist_name: str | None = None,
+    error: str | None = None,
+) -> None:
+    """發送 Apple Music 匯入結果通知至所有已設定的通道。
+
+    Args:
+        success: 匯入是否成功。
+        track_count: 匯入的曲目數量。
+        playlist_name: 目標播放清單名稱。
+        error: 失敗時的錯誤訊息。
+    """
+    message = _build_apple_music_message(success, track_count, playlist_name, error)
 
     _send_line(message)
     _send_telegram(message)
@@ -187,9 +210,27 @@ def _build_message(
     if apple_music_status:
         msg += f"Apple Music：{apple_music_status}\n"
 
-    msg += (
-        f"\n"
-        f"各來源貢獻：\n"
-        f"{source_lines}"
-    )
+    msg += f"\n各來源貢獻：\n{source_lines}"
+    return msg
+
+
+def _build_apple_music_message(
+    success: bool,
+    track_count: int | None = None,
+    playlist_name: str | None = None,
+    error: str | None = None,
+) -> str:
+    """組合 Apple Music 匯入通知文字。"""
+    if success:
+        msg = "🍎 Apple Music 匯入完成\n"
+        if playlist_name:
+            msg += f"\n播放清單：{playlist_name}"
+        if track_count is not None:
+            msg += f"\n曲目數量：{track_count} 首"
+        msg += "\n\n請至 Apple Music 確認播放清單。"
+    else:
+        msg = "🍎 Apple Music 匯入失敗\n"
+        if error:
+            msg += f"\n原因：{error}"
+        msg += "\n\n請檢查日誌或手動匯入。"
     return msg

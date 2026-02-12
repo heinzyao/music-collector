@@ -1,21 +1,23 @@
 # Music Collector
 
-自動從全球主要音樂評論網站蒐集「最佳新曲」推薦，並建立 Spotify 播放清單。
+自動從全球主要音樂評論網站蒐集「最佳新曲」推薦，並同步至 Spotify 與 Apple Music。
 
 ## 功能概覽
 
 每日自動執行以下流程：
 
 ```
-13 個音樂媒體來源 → 擷取推薦曲目 → 去重 → Spotify 搜尋比對 → 加入播放清單 → 季度歸檔 → 本地備份 → 多通道通知
+13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 自動匯出 CSV → TuneMyMusic 自動化 → Apple Music 同步 → LINE 通知
 ```
 
 ### 核心功能
 
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
+- **Apple Music 自動同步**：透過 Selenium 自動化 TuneMyMusic 流程，將新歌單無縫接軌至 Apple Music
 - **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
+- **瀏覽器狀態保存**：自動記憶 Apple ID 登入狀態，除首次授權外，後續可全自動執行
+- **多通道通知**：LINE + Telegram + Slack 推送執行摘要，包含兩大平台同步結果
 - **本地備份**：以 `data/backups/YYYY/QN.json` 季度結構備份所有曲目紀錄
-- **多通道通知**：LINE + Telegram + Slack 推送執行摘要（選用）
 - **多平台匯出**：Spotify URL 匯出，供 TuneMyMusic/Soundiiz 轉換至 YouTube Music、Tidal 等
 - **資料分析**：來源貢獻、Spotify 配對率、跨來源重疊分析
 - **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
@@ -180,6 +182,7 @@ music-collector/
 └── data/
     ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
+    ├── browser_profile/            # Selenium Chrome 使用者資料（Apple ID 登入狀態）
     ├── backups/                    # 季度 JSON 備份
     └── exports/                    # 匯出檔案
 ```

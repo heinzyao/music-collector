@@ -16,7 +16,7 @@
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Henry/Desktop/Project/music-collector</string>
+    <string>/Users/Henry/Project/music-collector</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -27,16 +27,16 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/Henry/Desktop/Project/music-collector/data/collector.log</string>
+    <string>/Users/Henry/Project/music-collector/data/collector.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Henry/Desktop/Project/music-collector/data/collector.log</string>
+    <string>/Users/Henry/Project/music-collector/data/collector.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/Users/Henry/.local/bin</string>
         <key>PYTHONPATH</key>
-        <string>/Users/Henry/Desktop/Project/music-collector/src</string>
+        <string>/Users/Henry/Project/music-collector/src</string>
     </dict>
 </dict>
 </plist>
