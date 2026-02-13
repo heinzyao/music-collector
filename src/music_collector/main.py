@@ -199,7 +199,9 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
                 from .tunemymusic import import_to_apple_music
 
                 track_count = _count_csv_tracks(csv_path)
-                success = import_to_apple_music(str(csv_path))
+                success = import_to_apple_music(
+                    str(csv_path), playlist_name=PLAYLIST_NAME
+                )
                 apple_music_status = "匯入成功" if success else "匯入失敗"
                 try:
                     send_apple_music_notification(
@@ -331,7 +333,9 @@ def main() -> None:
             from .tunemymusic import import_to_apple_music
 
             track_count = _count_csv_tracks(csv_path)
-            success = import_to_apple_music(str(csv_path))
+            success = import_to_apple_music(
+                str(csv_path), playlist_name=PLAYLIST_NAME
+            )
             try:
                 send_apple_music_notification(
                     success=success,

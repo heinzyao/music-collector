@@ -14,6 +14,7 @@
 
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 
 from selenium import webdriver
@@ -32,6 +33,64 @@ TUNEMYMUSIC_URL = "https://www.tunemymusic.com/"
 # 等待時間設定
 WAIT_TIMEOUT = 30  # 一般元素等待秒數
 AUTH_TIMEOUT = 300  # Apple Music 授權等待秒數（5 分鐘）
+
+
+def _save_debug_screenshot(driver: webdriver.Chrome, name: str) -> None:
+    """儲存除錯截圖至 data/ 目錄。"""
+    try:
+        debug_dir = Path("data")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = debug_dir / f"debug_{name}_{timestamp}.png"
+        driver.save_screenshot(str(path))
+        logger.info(f"已儲存除錯截圖：{path}")
+    except Exception as e:
+        logger.debug(f"無法儲存截圖：{e}")
+
+
+def _dismiss_cookie_consent(driver: webdriver.Chrome) -> None:
+    """嘗試關閉 cookie 同意彈窗（若存在）。
+
+    TuneMyMusic 使用 cookie consent overlay，會阻擋所有按鈕互動。
+    此函式靜默處理——找不到彈窗不視為錯誤。
+    """
+    consent_selectors = [
+        # 常見 cookie consent 按鈕 selector
+        "//button[normalize-space(text())='OK']",
+        "//button[normalize-space(text())='Accept']",
+        "//button[normalize-space(text())='Accept All']",
+        "//button[normalize-space(text())='Accept all']",
+        "//button[normalize-space(text())='I agree']",
+        "//button[normalize-space(text())='Got it']",
+        "//button[normalize-space(text())='Agree']",
+        "//button[contains(@class, 'consent')]",
+        "//button[contains(@class, 'cookie')]",
+        "//a[normalize-space(text())='OK']",
+        "//a[normalize-space(text())='Accept']",
+        # CMP (Consent Management Platform) 常見 selector
+        "[class*='consent'] button",
+        "[class*='cookie'] button",
+        "[id*='consent'] button",
+        "[id*='cookie'] button",
+        "#onetrust-accept-btn-handler",
+        ".cc-accept",
+        ".cc-btn.cc-dismiss",
+    ]
+
+    for selector in consent_selectors:
+        try:
+            by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
+            element = WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable((by, selector))
+            )
+            element.click()
+            logger.info(f"已關閉 cookie 同意彈窗（selector: {selector}）")
+            time.sleep(1)  # 等待 overlay 消失
+            return
+        except (TimeoutException, NoSuchElementException):
+            continue
+
+    logger.debug("未發現 cookie 同意彈窗（或已關閉）")
 
 
 def _create_driver() -> webdriver.Chrome:
@@ -222,6 +281,7 @@ def _upload_file(driver: webdriver.Chrome, csv_path: str) -> bool:
             logger.debug(f"頁面內容片段：{body_text}")
         except Exception:
             pass
+        _save_debug_screenshot(driver, "upload_file")
         return False
 
 
@@ -261,6 +321,202 @@ def _click_continue_button(driver: webdriver.Chrome) -> bool:
     return False
 
 
+def _set_playlist_name(driver: webdriver.Chrome, name: str) -> None:
+    """設定 TuneMyMusic 的目標播放清單名稱。
+
+    TuneMyMusic 使用 CSV 檔名作為預設播放清單名稱，
+    但在「Choose Destination」步驟前有可編輯的 input 欄位可以修改。
+    此函式找到該欄位並設定為指定名稱。
+    """
+    # 嘗試多種 selector 找到播放清單名稱輸入欄位
+    name_selectors = [
+        # input 類型的編輯欄位
+        "input[name='playlistName']",
+        "input[name='playlist_name']",
+        "input[name='playlist-name']",
+        "input[placeholder*='playlist']",
+        "input[placeholder*='Playlist']",
+        # contentEditable 類型的編輯欄位
+        "[contenteditable='true']",
+        # 通用 input（排除 file input 和 hidden）
+        "input[type='text']",
+    ]
+
+    for selector in name_selectors:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            for element in elements:
+                # 跳過不可見或不相關的元素
+                if not element.is_displayed():
+                    continue
+
+                # 清除並設定新名稱
+                current_value = element.get_attribute("value") or element.text
+                if current_value:
+                    logger.info(
+                        f"找到播放清單名稱欄位（目前值：{current_value}），"
+                        f"設定為：{name}"
+                    )
+
+                # 使用 JavaScript 清除並設定值（比 clear() + send_keys() 更可靠）
+                is_input = element.tag_name.lower() == "input"
+                if is_input:
+                    driver.execute_script(
+                        "var el = arguments[0];"
+                        "el.focus();"
+                        "el.value = '';"
+                        "el.value = arguments[1];"
+                        "el.dispatchEvent(new Event('input', {bubbles: true}));"
+                        "el.dispatchEvent(new Event('change', {bubbles: true}));",
+                        element,
+                        name,
+                    )
+                else:
+                    # contentEditable
+                    driver.execute_script(
+                        "var el = arguments[0];"
+                        "el.focus();"
+                        "el.textContent = arguments[1];"
+                        "el.dispatchEvent(new Event('input', {bubbles: true}));",
+                        element,
+                        name,
+                    )
+
+                logger.info(f"已設定播放清單名稱為：{name}")
+                return
+        except (NoSuchElementException, Exception):
+            continue
+
+    # 最後嘗試：用 JavaScript 搜尋所有可能的 input 和 editable 元素
+    try:
+        result = driver.execute_script("""
+            // 尋找包含檔名的 input
+            var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+            for (var i = 0; i < inputs.length; i++) {
+                var input = inputs[i];
+                if (input.offsetParent !== null && input.value && input.value.length > 0) {
+                    input.focus();
+                    input.value = '';
+                    input.value = arguments[0];
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                    input.dispatchEvent(new Event('change', {bubbles: true}));
+                    return 'input:' + i;
+                }
+            }
+            // 尋找 contentEditable 元素
+            var editables = document.querySelectorAll('[contenteditable="true"]');
+            for (var i = 0; i < editables.length; i++) {
+                var el = editables[i];
+                if (el.offsetParent !== null && el.textContent.trim().length > 0) {
+                    el.focus();
+                    el.textContent = arguments[0];
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                    return 'editable:' + i;
+                }
+            }
+            return null;
+        """, name)
+
+        if result:
+            logger.info(f"已透過 JS 設定播放清單名稱為：{name}（元素：{result}）")
+            return
+    except Exception as e:
+        logger.debug(f"JS 搜尋播放清單名稱欄位失敗：{e}")
+
+    logger.warning(f"找不到播放清單名稱編輯欄位，將使用 CSV 檔名作為播放清單名稱")
+    _save_debug_screenshot(driver, "set_playlist_name")
+
+
+def _delete_existing_apple_music_playlist(driver: webdriver.Chrome, name: str) -> None:
+    """刪除 Apple Music 中同名的現有播放清單，避免重複建立。
+
+    TuneMyMusic 每次轉移都會建立新播放清單，無法更新現有的。
+    此函式在轉移前透過 TuneMyMusic 已載入的 MusicKit JS API
+    找到並刪除同名播放清單，讓新建的播放清單成為唯一副本。
+
+    若 MusicKit JS 不可用或無同名播放清單，靜默跳過。
+    """
+    try:
+        result = driver.execute_script("""
+            var targetName = arguments[0];
+
+            // 取得 MusicKit 實例
+            var music = null;
+            if (typeof MusicKit !== 'undefined') {
+                try { music = MusicKit.getInstance(); } catch(e) {}
+            }
+            if (!music) {
+                // TuneMyMusic 可能把實例存在全域變數
+                if (window.music) music = window.music;
+            }
+            if (!music || !music.api) {
+                return {status: 'skip', reason: 'MusicKit JS not available'};
+            }
+
+            // 列出使用者的播放清單
+            try {
+                var response = await music.api.music('/v1/me/library/playlists');
+                var playlists = response.data.data || [];
+
+                // 找到同名播放清單
+                var matches = playlists.filter(function(p) {
+                    return p.attributes &&
+                           p.attributes.name === targetName;
+                });
+
+                if (matches.length === 0) {
+                    return {status: 'skip', reason: 'No matching playlist found'};
+                }
+
+                // 刪除所有同名播放清單
+                var deleted = [];
+                for (var i = 0; i < matches.length; i++) {
+                    var playlistId = matches[i].id;
+                    try {
+                        await music.api.music(
+                            '/v1/me/library/playlists/' + playlistId,
+                            {},
+                            {method: 'DELETE'}
+                        );
+                        deleted.push(playlistId);
+                    } catch(e) {
+                        // 單一刪除失敗不影響其他
+                    }
+                }
+
+                return {
+                    status: 'ok',
+                    found: matches.length,
+                    deleted: deleted.length,
+                    ids: deleted
+                };
+            } catch(e) {
+                return {status: 'error', reason: e.toString()};
+            }
+        """, name)
+
+        if not result:
+            logger.debug("MusicKit JS 回傳空結果")
+            return
+
+        status = result.get("status", "unknown")
+        if status == "ok":
+            found = result.get("found", 0)
+            deleted = result.get("deleted", 0)
+            logger.info(
+                f"已刪除 {deleted}/{found} 個同名 Apple Music 播放清單「{name}」"
+            )
+        elif status == "skip":
+            reason = result.get("reason", "")
+            logger.info(f"跳過刪除 Apple Music 播放清單：{reason}")
+        else:
+            reason = result.get("reason", "")
+            logger.warning(f"刪除 Apple Music 播放清單失敗：{reason}")
+
+    except Exception as e:
+        logger.debug(f"刪除 Apple Music 播放清單時發生例外（靜默跳過）：{e}")
+
+
 def _select_upload_source(driver: webdriver.Chrome) -> bool:
     """選擇「上傳檔案」作為來源。"""
     # name 屬性最穩定（不受語系與 CSS 模組 hash 影響）
@@ -290,6 +546,7 @@ def _select_upload_source(driver: webdriver.Chrome) -> bool:
             continue
 
     logger.error("找不到「上傳檔案」按鈕")
+    _save_debug_screenshot(driver, "select_upload_source")
     return False
 
 
@@ -324,6 +581,7 @@ def _select_apple_music(driver: webdriver.Chrome) -> bool:
             continue
 
     logger.error("找不到 Apple Music 按鈕")
+    _save_debug_screenshot(driver, "select_apple_music")
     return False
 
 
@@ -616,12 +874,17 @@ def _wait_for_transfer_completion(driver: webdriver.Chrome) -> bool:
     return False
 
 
-def import_to_apple_music(csv_path: str, keep_browser_open: bool = False) -> bool:
+def import_to_apple_music(
+    csv_path: str,
+    keep_browser_open: bool = False,
+    playlist_name: str | None = None,
+) -> bool:
     """將 CSV 檔案透過 TuneMyMusic 匯入 Apple Music。
 
     Args:
         csv_path: CSV 檔案的絕對路徑
         keep_browser_open: 完成後是否保持瀏覽器開啟（預設自動關閉）
+        playlist_name: 目標播放清單名稱（若不指定則使用 CSV 檔名）
 
     Returns:
         是否成功
@@ -640,6 +903,10 @@ def import_to_apple_music(csv_path: str, keep_browser_open: bool = False) -> boo
         logger.info(f"正在開啟 {TUNEMYMUSIC_URL}")
         driver.get(TUNEMYMUSIC_URL)
         time.sleep(2)
+
+        # 1.5 關閉 cookie 同意彈窗（若存在）
+        _dismiss_cookie_consent(driver)
+        time.sleep(1)
 
         # 2. 選擇「上傳檔案」作為來源
         if not _select_upload_source(driver):
@@ -664,6 +931,11 @@ def import_to_apple_music(csv_path: str, keep_browser_open: bool = False) -> boo
             else:
                 break
 
+        # 4.5 設定播放清單名稱（在選擇目標之前）
+        if playlist_name:
+            _set_playlist_name(driver, playlist_name)
+            time.sleep(1)
+
         # 5. 選擇 Apple Music 作為目標
         if not _select_apple_music(driver):
             return False
@@ -680,6 +952,11 @@ def import_to_apple_music(csv_path: str, keep_browser_open: bool = False) -> boo
         # 7. 等待授權完成（處理彈窗 + 確認進入轉移步驟）
         if not _wait_for_auth_completion(driver):
             return False
+
+        # 7.5 刪除同名的現有 Apple Music 播放清單（避免重複）
+        if playlist_name:
+            _delete_existing_apple_music_playlist(driver, playlist_name)
+            time.sleep(2)
 
         # 8. 開始轉移（auth completion 已確認 Start Transfer 按鈕存在）
         if not _start_transfer(driver):

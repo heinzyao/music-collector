@@ -127,8 +127,9 @@ docker compose run collector --dry-run
 ### 流程架構
 
 ```
-匯出 CSV → Selenium 開啟 TuneMyMusic → 上傳 CSV → 欄位對應 → 選擇歌單
-→ 選擇 Apple Music → 連接 → Apple ID 彈窗授權 → 開始轉移 → 完成
+匯出 CSV → Selenium 開啟 TuneMyMusic → 關閉 Cookie 同意 → 上傳 CSV → 欄位對應
+→ 選擇歌單 → 設定播放清單名稱 → 選擇 Apple Music → 連接
+→ Apple ID 彈窗授權 → 刪除同名舊播放清單 → 開始轉移 → 完成
 ```
 
 所有步驟在同一 URL (`/transfer`) 上以 SPA 方式切換，共 4 個步驟（STEP 1/4 ~ 4/4）。
@@ -152,6 +153,12 @@ TuneMyMusic 使用 Next.js + CSS Modules，class name 為 hash（如 `MusicServi
 4. 主頁面收到授權 token → 進入轉移步驟
 
 程式碼透過 `window_handles` 偵測彈窗、等待關閉、切回主視窗。
+
+### 播放清單名稱與去重
+
+- **名稱設定**：`_set_playlist_name()` 在「Choose Destination」步驟前找到可編輯的 input/contentEditable 欄位，將 CSV 檔名替換為 `PLAYLIST_NAME`（如 `Critics' Picks — Fresh Tracks`），確保特殊字元（curly apostrophe `'`、em dash `—`）正確保留
+- **去重策略**：TuneMyMusic 每次轉移必定建立新播放清單，`_delete_existing_apple_music_playlist()` 在授權完成後、開始轉移前，透過 MusicKit JS API（`/v1/me/library/playlists`）找到同名舊播放清單並刪除，確保只有一個播放清單
+- `import_to_apple_music()` 接受 `playlist_name` 參數，由 `main.py` 傳入 `PLAYLIST_NAME`
 
 ### 反偵測措施
 
