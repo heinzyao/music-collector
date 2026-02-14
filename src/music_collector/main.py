@@ -97,7 +97,11 @@ def reset() -> None:
 
 
 def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
-    """主流程：擷取 → Spotify 搜尋 → 備份 → 通知。"""
+    """主流程：擷取 → Spotify 搜尋 → 備份 → Apple Music 同步 → 通知。
+
+    當 sync_apple_music=True 時，Apple Music 匯入無論是否有新曲目都會執行，
+    確保 Spotify 歌單完成後才進行 Apple Music 匯入。
+    """
     logger.info("開始音樂蒐集...")
 
     new_tracks = collect_tracks()
@@ -105,75 +109,80 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
 
     if not new_tracks:
         logger.info("今日無新曲目。")
-        if not dry_run:
+        if not dry_run and not sync_apple_music:
+            # 無 Apple Music 同步時直接發送「無新曲目」通知並結束
             try:
                 send_no_new_tracks_notification()
             except Exception as e:
                 logger.warning(f"通知失敗：{e}")
-        return
+            return
 
     # 乾跑模式：僅列出擷取結果，不操作 Spotify / 不備份 / 不通知
     if dry_run:
-        logger.info("乾跑模式 — 僅列出擷取結果：")
-        for t in new_tracks:
-            print(f"  [{t.source}] {t.artist} — {t.title}")
+        if new_tracks:
+            logger.info("乾跑模式 — 僅列出擷取結果：")
+            for t in new_tracks:
+                print(f"  [{t.source}] {t.artist} — {t.title}")
         return
 
-    # 連接 Spotify 並取得或建立播放清單
-    sp = get_spotify_client()
-    playlist_id = get_or_create_playlist(sp)
-
-    # 一次性合併舊播放清單（找不到則自動跳過）
-    try:
-        migrate_old_playlist(sp, playlist_id)
-    except Exception as e:
-        logger.warning(f"舊播放清單合併失敗：{e}")
-
-    # 季度歸檔：將前季曲目移至歸檔清單
-    try:
-        archive_previous_quarters(sp, playlist_id)
-    except Exception as e:
-        logger.warning(f"季度歸檔失敗：{e}")
-
-    conn = init_db()
+    # Spotify 更新（僅有新曲目時執行）
     spotify_uris: list[str] = []
     not_found: list[Track] = []
-    spotify_results: dict[tuple[str, str], str | None] = {}
 
-    # 逐首搜尋 Spotify 並儲存結果
-    for track in new_tracks:
+    if new_tracks:
+        # 連接 Spotify 並取得或建立播放清單
+        sp = get_spotify_client()
+        playlist_id = get_or_create_playlist(sp)
+
+        # 一次性合併舊播放清單（找不到則自動跳過）
         try:
-            uri = search_track(sp, track.artist, track.title)
-            if uri:
-                spotify_uris.append(uri)
-                spotify_results[(track.artist, track.title)] = uri
-                save_track(conn, track.artist, track.title, track.source, uri)
-                logger.info(f"  找到：{track.artist} — {track.title}")
-            else:
-                not_found.append(track)
-                spotify_results[(track.artist, track.title)] = None
-                save_track(conn, track.artist, track.title, track.source, None)
-                logger.warning(f"  Spotify 未找到：{track.artist} — {track.title}")
+            migrate_old_playlist(sp, playlist_id)
         except Exception as e:
-            logger.warning(f"  搜尋失敗：{track.artist} — {track.title}: {e}")
+            logger.warning(f"舊播放清單合併失敗：{e}")
 
-    conn.close()
+        # 季度歸檔：將前季曲目移至歸檔清單
+        try:
+            archive_previous_quarters(sp, playlist_id)
+        except Exception as e:
+            logger.warning(f"季度歸檔失敗：{e}")
 
-    # 批次加入播放清單
-    if spotify_uris:
-        add_tracks_to_playlist(sp, playlist_id, spotify_uris)
-        logger.info(f"已加入 {len(spotify_uris)} 首曲目至播放清單")
+        conn = init_db()
+        spotify_results: dict[tuple[str, str], str | None] = {}
 
-    if not_found:
-        logger.info(f"{len(not_found)} 首曲目在 Spotify 上未找到")
+        # 逐首搜尋 Spotify 並儲存結果
+        for track in new_tracks:
+            try:
+                uri = search_track(sp, track.artist, track.title)
+                if uri:
+                    spotify_uris.append(uri)
+                    spotify_results[(track.artist, track.title)] = uri
+                    save_track(conn, track.artist, track.title, track.source, uri)
+                    logger.info(f"  找到：{track.artist} — {track.title}")
+                else:
+                    not_found.append(track)
+                    spotify_results[(track.artist, track.title)] = None
+                    save_track(conn, track.artist, track.title, track.source, None)
+                    logger.warning(f"  Spotify 未找到：{track.artist} — {track.title}")
+            except Exception as e:
+                logger.warning(f"  搜尋失敗：{track.artist} — {track.title}: {e}")
 
-    # 備份至季度 JSON
-    try:
-        save_backup(new_tracks, spotify_results)
-    except Exception as e:
-        logger.warning(f"備份失敗：{e}")
+        conn.close()
 
-    # Apple Music 自動匯入
+        # 批次加入播放清單
+        if spotify_uris:
+            add_tracks_to_playlist(sp, playlist_id, spotify_uris)
+            logger.info(f"已加入 {len(spotify_uris)} 首曲目至播放清單")
+
+        if not_found:
+            logger.info(f"{len(not_found)} 首曲目在 Spotify 上未找到")
+
+        # 備份至季度 JSON
+        try:
+            save_backup(new_tracks, spotify_results)
+        except Exception as e:
+            logger.warning(f"備份失敗：{e}")
+
+    # Apple Music 自動匯入（無論是否有新曲目都執行，確保 Apple Music 與 Spotify 同步）
     apple_music_status = None
     if sync_apple_music:
         try:
