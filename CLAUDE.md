@@ -175,6 +175,44 @@ MusicKit JS 會偵測無痕模式（透過 IndexedDB quota、Service Worker、st
 - 後續執行若 session 仍有效則可全自動
 - `data/browser_profile/` 儲存 Chrome profile（不可推送至 Git）
 
+## 自動排程（launchd）
+
+### 設定檔
+
+- 專案內：`com.music-collector.plist`
+- 安裝位置：`~/Library/LaunchAgents/com.music-collector.plist`
+- 每日 09:00 執行，log 輸出至 `data/collector.log`
+
+### 排程指令
+
+```bash
+# 安裝排程
+cp com.music-collector.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.music-collector.plist
+
+# 移除排程
+launchctl unload ~/Library/LaunchAgents/com.music-collector.plist
+
+# 檢查狀態
+launchctl list | grep music-collector
+
+# 手動觸發（測試用）
+launchctl start com.music-collector
+```
+
+### 執行流程（`run(sync_apple_music=True)`）
+
+排程使用 `--apple-music` 旗標，執行順序嚴格保證 **Spotify 先完成，再進行 Apple Music**：
+
+```
+1. 擷取新曲目（13 個來源）
+2. Spotify 更新（僅有新曲目時）：搜尋 → 加入歌單 → 備份
+3. Apple Music 匯入（無論是否有新曲目都執行）：匯出 CSV → TuneMyMusic 轉移
+4. 發送通知
+```
+
+Apple Music 匯入與新曲目解耦，確保即使當天無新曲目，前次失敗的匯入仍會重試。
+
 ## 注意事項
 
 - `.env`、`.spotify_cache`、`data/` 不可推送至 Git
