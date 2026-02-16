@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
-from .export import export_playlist, export_spotify_url
+from .export import export_from_spotify, export_playlist, export_spotify_url
 from .stats import show_stats
 from .config import DB_PATH, PLAYLIST_NAME
 from .db import init_db, save_track, track_exists, get_recent_tracks
@@ -187,22 +187,7 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     if sync_apple_music:
         try:
             logger.info("開始 Apple Music 同步流程...")
-            # 1. 匯出當前季度的 Spotify 歌單為 CSV
-            # 這裡我們使用 export_playlist，但需要確定季度
-            # 為了簡化，我們先匯出「當前主播放清單」的內容，但 export_playlist 需要季度參數
-            # 替代方案：匯出剛才收集到的 new_tracks，或者直接使用「當前季度」
-            # 我們使用 "Fresh" 作為特殊標記來匯出主清單，或者根據當前日期計算季度
-            # 這裡簡單起見，我們匯出當前日期對應的季度
-            from datetime import datetime
-            from .export import get_current_quarter, export_playlist
-
-            current_quarter = get_current_quarter()
-            csv_path = export_playlist(
-                current_quarter,
-                fmt="csv",
-                include_all=False,
-                playlist_name=PLAYLIST_NAME,
-            )
+            csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
 
             if csv_path:
                 from .tunemymusic import import_to_apple_music
@@ -331,13 +316,8 @@ def main() -> None:
     elif args.export_spotify_url:
         export_spotify_url()
     elif args.import_quarter:
-        # 先匯出為 CSV（使用 Spotify 歌單名稱作為檔名，TuneMyMusic 會用檔名作為目標歌單名）
-        csv_path = export_playlist(
-            args.import_quarter,
-            fmt="csv",
-            include_all=args.include_all,
-            playlist_name=PLAYLIST_NAME,
-        )
+        # 直接從 Spotify API 匯出（確保 artist/title 與 Spotify 一致）
+        csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
         if csv_path:
             from .tunemymusic import import_to_apple_music
 

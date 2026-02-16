@@ -13,13 +13,14 @@
 """
 
 import logging
+import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -33,6 +34,166 @@ TUNEMYMUSIC_URL = "https://www.tunemymusic.com/"
 # 等待時間設定
 WAIT_TIMEOUT = 30  # 一般元素等待秒數
 AUTH_TIMEOUT = 300  # Apple Music 授權等待秒數（5 分鐘）
+
+# Apple Music API 存取的共用 JavaScript 程式碼。
+# 執行後可用的變數與函式：
+#   canUseMusicKitApi (bool) — MusicKit JS 實例可用
+#   canUseFetch (bool)       — 有 developer token + user token 可用 fetch
+#   apiGet(path)             — GET 請求
+#   apiPatch(path, body)     — PATCH 請求
+#   apiDelete(path)          — DELETE 請求
+#   _apiDebugInfo()          — 回傳診斷資訊物件
+_APPLE_MUSIC_API_JS = """
+    // --- 取得 MusicKit 實例 ---
+    var music = null;
+    if (typeof MusicKit !== 'undefined') {
+        try { music = MusicKit.getInstance(); } catch(e) {}
+        if (!music) {
+            try {
+                var inst = MusicKit.instances;
+                if (inst && inst.length > 0) music = inst[0];
+            } catch(e) {}
+        }
+    }
+    if (!music && window.music) music = window.music;
+
+    var canUseMusicKitApi = !!(music && music.api &&
+                               typeof music.api.music === 'function');
+
+    // --- 若 MusicKit 未設定，嘗試用攔截器保存的 token 重新設定 ---
+    var devToken = null;
+    var userToken = null;
+
+    if (!canUseMusicKitApi && typeof MusicKit !== 'undefined' && MusicKit.configure) {
+        // 從攔截器保存的 localStorage 取得 developer token
+        try { devToken = localStorage.getItem('__tmm_apple_dev_token'); } catch(e) {}
+
+        // user token 的 key 格式為 music.{appId}.u
+        if (devToken) {
+            try {
+                for (var i = 0; i < localStorage.length; i++) {
+                    var key = localStorage.key(i);
+                    if (/^music\\..+\\.u$/.test(key)) {
+                        userToken = localStorage.getItem(key);
+                        break;
+                    }
+                }
+            } catch(e) {}
+
+            // 若兩個 token 都有，嘗試設定 MusicKit 實例
+            if (userToken) {
+                try {
+                    music = MusicKit.configure({
+                        developerToken: devToken,
+                        app: {
+                            name: 'TuneMyMusic',
+                            icon: 'https://www.tunemymusic.com/images/192_logo.png',
+                            build: '1.0'
+                        }
+                    });
+                    canUseMusicKitApi = !!(music && music.api &&
+                                           typeof music.api.music === 'function');
+                } catch(e) {}
+            }
+        }
+    }
+
+    // --- 提取 token 用於 fetch 備援 ---
+    if (!canUseMusicKitApi) {
+        // 從 MusicKit 實例取 token（實例可能存在但 .api 不可用）
+        if (music) {
+            if (!devToken) devToken = music.developerToken || null;
+            if (!userToken) userToken = music.musicUserToken || null;
+        }
+
+        // 從 localStorage 搜尋（攔截器 + MusicKit 儲存格式）
+        if (!devToken) {
+            try { devToken = localStorage.getItem('__tmm_apple_dev_token'); } catch(e) {}
+        }
+        if (!userToken) {
+            try {
+                for (var i = 0; i < localStorage.length; i++) {
+                    var key = localStorage.key(i);
+                    if (/^music\\..+\\.u$/.test(key)) {
+                        userToken = localStorage.getItem(key);
+                        break;
+                    }
+                }
+            } catch(e) {}
+        }
+    }
+
+    var canUseFetch = !!(devToken && userToken);
+
+    // --- 共用 API 呼叫函式 ---
+    async function apiGet(path) {
+        if (canUseMusicKitApi) {
+            var r = await music.api.music(path);
+            return r.data;
+        }
+        var r = await fetch('https://api.music.apple.com' + path, {
+            headers: {
+                'Authorization': 'Bearer ' + devToken,
+                'Music-User-Token': userToken
+            }
+        });
+        if (!r.ok) throw new Error('GET ' + path + ' failed: HTTP ' + r.status);
+        return await r.json();
+    }
+
+    async function apiPatch(path, body) {
+        if (canUseMusicKitApi) {
+            await music.api.music(path, {}, {
+                method: 'PATCH',
+                body: JSON.stringify(body)
+            });
+            return;
+        }
+        var r = await fetch('https://api.music.apple.com' + path, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': 'Bearer ' + devToken,
+                'Music-User-Token': userToken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+        if (!r.ok) throw new Error('PATCH ' + path + ' failed: HTTP ' + r.status);
+    }
+
+    async function apiDelete(path) {
+        if (canUseMusicKitApi) {
+            await music.api.music(path, {}, {method: 'DELETE'});
+            return;
+        }
+        var r = await fetch('https://api.music.apple.com' + path, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': 'Bearer ' + devToken,
+                'Music-User-Token': userToken
+            }
+        });
+        if (!r.ok) throw new Error('DELETE ' + path + ' failed: HTTP ' + r.status);
+    }
+
+    function _apiDebugInfo() {
+        return {
+            hasMusicKitGlobal: typeof MusicKit !== 'undefined',
+            hasInstance: !!music,
+            hasApi: !!(music && music.api),
+            hasDevToken: !!devToken,
+            hasUserToken: !!userToken,
+            localStorageKeys: (function() {
+                try {
+                    var keys = [];
+                    for (var i = 0; i < localStorage.length; i++)
+                        keys.push(localStorage.key(i));
+                    return keys;
+                } catch(e) { return []; }
+            })()
+        };
+    }
+"""
 
 
 def _save_debug_screenshot(driver: webdriver.Chrome, name: str) -> None:
@@ -160,6 +321,48 @@ def _create_driver() -> webdriver.Chrome:
                         return result;
                     };
                 }
+
+                // 攔截 MusicKit.configure 以擷取 developer token。
+                // TuneMyMusic 的 React 元件在選擇 Apple Music 時呼叫
+                // MusicKit.configure({developerToken: ...})，
+                // 此攔截器將 token 保存至 localStorage 供後續 API 呼叫使用。
+                (function() {
+                    var _origDefProp = Object.defineProperty;
+                    // MusicKit 可能尚未載入，用 defineProperty 攔截其設定
+                    var _hooked = false;
+                    function hookConfigure(MK) {
+                        if (_hooked || !MK || !MK.configure) return;
+                        _hooked = true;
+                        var orig = MK.configure.bind(MK);
+                        MK.configure = function(config) {
+                            if (config && config.developerToken) {
+                                try {
+                                    localStorage.setItem(
+                                        '__tmm_apple_dev_token',
+                                        config.developerToken
+                                    );
+                                } catch(e) {}
+                            }
+                            return orig(config);
+                        };
+                    }
+                    // 若 MusicKit 已存在，直接 hook
+                    if (typeof MusicKit !== 'undefined') {
+                        hookConfigure(MusicKit);
+                    }
+                    // 監聽 MusicKit 被設定到 window 上的時機
+                    try {
+                        var _mkVal = window.MusicKit;
+                        _origDefProp(window, 'MusicKit', {
+                            configurable: true,
+                            get: function() { return _mkVal; },
+                            set: function(v) {
+                                _mkVal = v;
+                                if (v && v.configure) hookConfigure(v);
+                            }
+                        });
+                    } catch(e) {}
+                })();
             """
         },
     )
@@ -297,11 +500,11 @@ def _click_continue_button(driver: webdriver.Chrome) -> bool:
     selectors = [
         # 最穩定：所有步驟的 Continue/Choose Destination 共用此 name
         "button[name='stickyButton']",
-        "//*[normalize-space(text())='Continue']",
-        "//*[normalize-space(text())='Choose Destination']",
-        "//*[normalize-space(text())='繼續']",
-        "//*[normalize-space(text())='選擇目的地']",
-        "//*[contains(text(), 'Next')]",
+        "//button[normalize-space(text())='Continue']",
+        "//button[normalize-space(text())='Choose Destination']",
+        "//button[normalize-space(text())='繼續']",
+        "//button[normalize-space(text())='選擇目的地']",
+        "//button[contains(text(), 'Next')]",
     ]
 
     for selector in selectors:
@@ -389,7 +592,8 @@ def _set_playlist_name(driver: webdriver.Chrome, name: str) -> None:
 
     # 最後嘗試：用 JavaScript 搜尋所有可能的 input 和 editable 元素
     try:
-        result = driver.execute_script("""
+        result = driver.execute_script(
+            """
             // 尋找包含檔名的 input
             var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
             for (var i = 0; i < inputs.length; i++) {
@@ -415,7 +619,9 @@ def _set_playlist_name(driver: webdriver.Chrome, name: str) -> None:
                 }
             }
             return null;
-        """, name)
+        """,
+            name,
+        )
 
         if result:
             logger.info(f"已透過 JS 設定播放清單名稱為：{name}（元素：{result}）")
@@ -431,32 +637,25 @@ def _delete_existing_apple_music_playlist(driver: webdriver.Chrome, name: str) -
     """刪除 Apple Music 中同名的現有播放清單，避免重複建立。
 
     TuneMyMusic 每次轉移都會建立新播放清單，無法更新現有的。
-    此函式在轉移前透過 TuneMyMusic 已載入的 MusicKit JS API
-    找到並刪除同名播放清單，讓新建的播放清單成為唯一副本。
+    此函式在轉移前透過 Apple Music API 找到並刪除同名播放清單，
+    讓新建的播放清單成為唯一副本。
 
-    若 MusicKit JS 不可用或無同名播放清單，靜默跳過。
+    若 API 不可用或無同名播放清單，靜默跳過。
     """
     try:
-        result = driver.execute_script("""
+        result = driver.execute_script(
+            _APPLE_MUSIC_API_JS
+            + """
             var targetName = arguments[0];
 
-            // 取得 MusicKit 實例
-            var music = null;
-            if (typeof MusicKit !== 'undefined') {
-                try { music = MusicKit.getInstance(); } catch(e) {}
-            }
-            if (!music) {
-                // TuneMyMusic 可能把實例存在全域變數
-                if (window.music) music = window.music;
-            }
-            if (!music || !music.api) {
-                return {status: 'skip', reason: 'MusicKit JS not available'};
+            if (!canUseMusicKitApi && !canUseFetch) {
+                return {status: 'skip', reason: 'Cannot access Apple Music API',
+                        debug: _apiDebugInfo()};
             }
 
-            // 列出使用者的播放清單
             try {
-                var response = await music.api.music('/v1/me/library/playlists');
-                var playlists = response.data.data || [];
+                var data = await apiGet('/v1/me/library/playlists?limit=100');
+                var playlists = data.data || [];
 
                 // 找到同名播放清單
                 var matches = playlists.filter(function(p) {
@@ -473,10 +672,8 @@ def _delete_existing_apple_music_playlist(driver: webdriver.Chrome, name: str) -
                 for (var i = 0; i < matches.length; i++) {
                     var playlistId = matches[i].id;
                     try {
-                        await music.api.music(
-                            '/v1/me/library/playlists/' + playlistId,
-                            {},
-                            {method: 'DELETE'}
+                        await apiDelete(
+                            '/v1/me/library/playlists/' + playlistId
                         );
                         deleted.push(playlistId);
                     } catch(e) {
@@ -488,33 +685,254 @@ def _delete_existing_apple_music_playlist(driver: webdriver.Chrome, name: str) -
                     status: 'ok',
                     found: matches.length,
                     deleted: deleted.length,
-                    ids: deleted
+                    ids: deleted,
+                    mode: canUseMusicKitApi ? 'musickit' : 'fetch'
                 };
             } catch(e) {
                 return {status: 'error', reason: e.toString()};
             }
-        """, name)
+        """,
+            name,
+        )
 
         if not result:
-            logger.debug("MusicKit JS 回傳空結果")
+            logger.debug("Apple Music 刪除回傳空結果")
             return
 
         status = result.get("status", "unknown")
         if status == "ok":
             found = result.get("found", 0)
             deleted = result.get("deleted", 0)
+            mode = result.get("mode", "?")
             logger.info(
-                f"已刪除 {deleted}/{found} 個同名 Apple Music 播放清單「{name}」"
+                f"已刪除 {deleted}/{found} 個同名 Apple Music 播放清單"
+                f"「{name}」（透過 {mode}）"
             )
         elif status == "skip":
             reason = result.get("reason", "")
+            debug = result.get("debug", {})
             logger.info(f"跳過刪除 Apple Music 播放清單：{reason}")
+            if debug:
+                logger.debug(f"Apple Music API 診斷：{debug}")
         else:
             reason = result.get("reason", "")
             logger.warning(f"刪除 Apple Music 播放清單失敗：{reason}")
 
     except Exception as e:
         logger.debug(f"刪除 Apple Music 播放清單時發生例外（靜默跳過）：{e}")
+
+
+def _rename_apple_music_playlist(
+    driver: webdriver.Chrome, target_name: str, csv_path: str
+) -> None:
+    """將 TuneMyMusic 新建的 Apple Music 播放清單改名為正確名稱。
+
+    TuneMyMusic 建立播放清單時使用預設名稱（如 "My Playkist"）而非 CSV 檔名
+    或使用者指定的名稱。
+
+    改名策略（依優先順序）：
+    1. MusicKit JS API（若 TuneMyMusic 有設定 MusicKit 實例）
+    2. 提取 developer token + user token，直接用 fetch 呼叫 Apple Music REST API
+    3. macOS Music.app（透過 osascript/AppleScript，等待 iCloud 同步後改名）
+
+    播放清單搜尋策略：
+    1. 名稱為 "My Playkist"（TuneMyMusic 預設名稱）
+    2. 名稱為 CSV 檔名（不含副檔名）
+    3. 若 target_name 已存在則跳過（名稱已正確）
+    """
+    csv_stem = Path(csv_path).stem
+
+    # --- 策略 1 & 2: MusicKit JS / fetch ---
+    web_api_succeeded = False
+    try:
+        result = driver.execute_script(
+            _APPLE_MUSIC_API_JS
+            + """
+            var targetName = arguments[0];
+            var csvStem = arguments[1];
+
+            if (!canUseMusicKitApi && !canUseFetch) {
+                return {status: 'no_api'};
+            }
+
+            try {
+                var data = await apiGet('/v1/me/library/playlists?limit=100');
+                var playlists = data.data || [];
+
+                var alreadyCorrect = playlists.some(function(p) {
+                    return p.attributes && p.attributes.name === targetName;
+                });
+                if (alreadyCorrect) {
+                    return {status: 'skip', reason: 'Playlist already has correct name'};
+                }
+
+                var candidateNames = ['My Playkist'];
+                if (csvStem && csvStem !== targetName) {
+                    candidateNames.push(csvStem);
+                }
+
+                var toRename = null;
+                for (var c = 0; c < candidateNames.length; c++) {
+                    for (var i = 0; i < playlists.length; i++) {
+                        if (playlists[i].attributes &&
+                            playlists[i].attributes.name === candidateNames[c]) {
+                            toRename = playlists[i];
+                            break;
+                        }
+                    }
+                    if (toRename) break;
+                }
+
+                if (!toRename) {
+                    return {status: 'skip', reason: 'No candidate playlist found',
+                            searched: candidateNames};
+                }
+
+                var oldName = toRename.attributes.name;
+                var playlistId = toRename.id;
+
+                await apiPatch(
+                    '/v1/me/library/playlists/' + playlistId,
+                    { attributes: { name: targetName } }
+                );
+
+                return {status: 'ok', oldName: oldName, newName: targetName,
+                        mode: canUseMusicKitApi ? 'musickit' : 'fetch'};
+            } catch(e) {
+                return {status: 'error', reason: e.toString()};
+            }
+        """,
+            target_name,
+            csv_stem,
+        )
+
+        if result:
+            status = result.get("status", "unknown")
+            if status == "ok":
+                old = result.get("oldName", "?")
+                mode = result.get("mode", "?")
+                logger.info(
+                    f"已將 Apple Music 播放清單「{old}」改名為"
+                    f"「{target_name}」（透過 {mode}）"
+                )
+                web_api_succeeded = True
+            elif status == "skip":
+                reason = result.get("reason", "")
+                logger.info(f"跳過改名 Apple Music 播放清單：{reason}")
+                web_api_succeeded = True  # 不需要 fallback
+            elif status == "no_api":
+                logger.info("MusicKit JS 不可用，將使用 Music.app 改名")
+            else:
+                reason = result.get("reason", "")
+                logger.warning(f"Web API 改名失敗（{reason}），嘗試 Music.app")
+    except Exception as e:
+        logger.debug(f"Web API 改名例外：{e}")
+
+    if web_api_succeeded:
+        return
+
+    # --- 策略 3: macOS Music.app (osascript) ---
+    if sys.platform != "darwin":
+        logger.warning("非 macOS 環境，無法透過 Music.app 改名")
+        return
+
+    _rename_via_music_app(target_name, csv_stem)
+
+
+def _rename_via_music_app(target_name: str, csv_stem: str) -> None:
+    """透過 macOS Music.app (AppleScript) 改名播放清單。
+
+    TuneMyMusic 建立的播放清單會透過 iCloud 同步至 Music.app，
+    此函式等待同步完成後將播放清單改名。
+    """
+    # 候選名稱
+    candidates = ["My Playkist"]
+    if csv_stem and csv_stem != target_name:
+        candidates.append(csv_stem)
+
+    # 等待 iCloud 同步（最多 60 秒）
+    logger.info("等待 Music.app iCloud 同步...")
+    found_name = None
+    for attempt in range(12):
+        for name in candidates:
+            # AppleScript 中的引號需要轉義
+            escaped = name.replace("\\", "\\\\").replace('"', '\\"')
+            script = (
+                'tell application "Music"\n'
+                f'  set matches to (every playlist whose name is "{escaped}")\n'
+                '  if (count of matches) > 0 then return "found"\n'
+                '  return "not_found"\n'
+                "end tell"
+            )
+            try:
+                result = subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.stdout.strip() == "found":
+                    found_name = name
+                    break
+            except Exception:
+                pass
+        if found_name:
+            break
+        time.sleep(5)
+
+    if not found_name:
+        # 也確認目標名稱是否已存在（可能已經是正確的）
+        escaped_target = target_name.replace("\\", "\\\\").replace('"', '\\"')
+        try:
+            result = subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'tell application "Music"\n'
+                    f'  set matches to (every playlist whose name is "{escaped_target}")\n'
+                    f'  if (count of matches) > 0 then return "found"\n'
+                    f'  return "not_found"\n'
+                    f"end tell",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.stdout.strip() == "found":
+                logger.info(f"Apple Music 播放清單名稱已正確：{target_name}")
+                return
+        except Exception:
+            pass
+        logger.warning(f"Music.app 中找不到候選播放清單 {candidates}，可能尚未同步完成")
+        return
+
+    # 改名
+    escaped_old = found_name.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_new = target_name.replace("\\", "\\\\").replace('"', '\\"')
+    rename_script = (
+        'tell application "Music"\n'
+        f'  set targetPlaylist to first playlist whose name is "{escaped_old}"\n'
+        f'  set name of targetPlaylist to "{escaped_new}"\n'
+        '  return "ok"\n'
+        "end tell"
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", rename_script],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.stdout.strip() == "ok":
+            logger.info(
+                f"已透過 Music.app 將播放清單「{found_name}」改名為「{target_name}」"
+            )
+        else:
+            logger.warning(f"Music.app 改名失敗：{result.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        logger.warning("Music.app 改名逾時")
+    except Exception as e:
+        logger.warning(f"Music.app 改名例外：{e}")
 
 
 def _select_upload_source(driver: webdriver.Chrome) -> bool:
@@ -594,11 +1012,11 @@ def _click_connect_button(driver: webdriver.Chrome) -> bool:
     3. 開啟 Apple ID 登入彈窗 (idmsa.apple.com)
     """
     selectors = [
-        "//*[normalize-space(text())='Connect']",
-        "//*[normalize-space(text())='Sign in']",
-        "//*[contains(text(), 'Connect') and not(contains(text(), 'Processing'))]",
-        "//*[contains(text(), '連接')]",
-        "//*[contains(text(), 'Sign in')]",
+        "//button[normalize-space(text())='Connect']",
+        "//button[normalize-space(text())='Sign in']",
+        "//button[contains(text(), 'Connect') and not(contains(text(), 'Processing'))]",
+        "//button[contains(text(), '連接')]",
+        "//button[contains(text(), 'Sign in')]",
     ]
 
     for selector in selectors:
@@ -813,16 +1231,17 @@ def _wait_for_transfer_completion(driver: webdriver.Chrome) -> bool:
         # "Done" 按鈕（僅匹配 button 避免 false positive）
         "//button[normalize-space(text())='Done']",
         "//button[normalize-space(text())='完成']",
-        # 出現 "Move to" 或 "Share" 選項代表轉移結束
-        "//*[contains(text(), 'Move to another')]",
-        "//*[contains(text(), 'Share')]",
+        # 出現 "Move to another" 按鈕代表轉移結束（嚴格匹配完整文字）
+        "//button[contains(text(), 'Move to another')]",
+        # "Share" 按鈕（僅匹配 button，避免匹配頁面上無關的 "Share" 文字）
+        "//button[normalize-space(text())='Share']",
     ]
 
-    # 失敗指標
+    # 失敗指標（嚴格匹配，避免 false positive）
     failure_indicators = [
         "//*[contains(text(), 'Transfer Failed')]",
         "//*[contains(text(), 'Transfer failed')]",
-        "//*[contains(text(), 'Error')]",
+        "//*[contains(text(), 'Transfer error')]",
         "//*[contains(text(), '轉移失敗')]",
     ]
 
@@ -968,6 +1387,11 @@ def import_to_apple_music(
             logger.info("匯入成功")
         else:
             print("\n  轉移可能仍在進行中，請在瀏覽器中確認。")
+
+        # 9.5 改名播放清單（TuneMyMusic 預設名稱為 "My Playkist"）
+        if playlist_name:
+            time.sleep(2)  # 等待 Apple Music 後端同步
+            _rename_apple_music_playlist(driver, playlist_name, csv_path)
 
         # 完成後等待 3 秒讓使用者看到結果
         time.sleep(3)

@@ -73,7 +73,7 @@ docker compose run collector --dry-run
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
-- `src/music_collector/export.py` — 匯出備份為 CSV/TXT + Spotify URL 匯出
+- `src/music_collector/export.py` — 匯出為 CSV/TXT（`export_from_spotify()` 直接從 Spotify API 讀取官方元資料；舊函式 `export_csv()`/`export_playlist()` 從備份 JSON 讀取）+ Spotify URL 匯出
 - `src/music_collector/tunemymusic.py` — Selenium 自動化 TuneMyMusic 匯入 Apple Music
 - `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
@@ -130,6 +130,7 @@ docker compose run collector --dry-run
 匯出 CSV → Selenium 開啟 TuneMyMusic → 關閉 Cookie 同意 → 上傳 CSV → 欄位對應
 → 選擇歌單 → 設定播放清單名稱 → 選擇 Apple Music → 連接
 → Apple ID 彈窗授權 → 刪除同名舊播放清單 → 開始轉移 → 完成
+→ MusicKit JS API 改名播放清單（確保名稱與 Spotify 同步）
 ```
 
 所有步驟在同一 URL (`/transfer`) 上以 SPA 方式切換，共 4 個步驟（STEP 1/4 ~ 4/4）。
@@ -156,7 +157,9 @@ TuneMyMusic 使用 Next.js + CSS Modules，class name 為 hash（如 `MusicServi
 
 ### 播放清單名稱與去重
 
-- **名稱設定**：`_set_playlist_name()` 在「Choose Destination」步驟前找到可編輯的 input/contentEditable 欄位，將 CSV 檔名替換為 `PLAYLIST_NAME`（如 `Critics' Picks — Fresh Tracks`），確保特殊字元（curly apostrophe `'`、em dash `—`）正確保留
+- **名稱設定（雙重保障）**：
+  - **UI 層**（best-effort）：`_set_playlist_name()` 在「Choose Destination」步驟前嘗試找到可編輯欄位修改名稱，但 TuneMyMusic UI 經常變動，可能失敗
+  - **API 層**（可靠）：`_rename_apple_music_playlist()` 在轉移完成後透過 MusicKit JS API（`PATCH /v1/me/library/playlists/{id}`）將播放清單改名為 `PLAYLIST_NAME`，搜尋候選名稱 "My Playkist"（TuneMyMusic 預設）或 CSV 檔名
 - **去重策略**：TuneMyMusic 每次轉移必定建立新播放清單，`_delete_existing_apple_music_playlist()` 在授權完成後、開始轉移前，透過 MusicKit JS API（`/v1/me/library/playlists`）找到同名舊播放清單並刪除，確保只有一個播放清單
 - `import_to_apple_music()` 接受 `playlist_name` 參數，由 `main.py` 傳入 `PLAYLIST_NAME`
 
@@ -207,7 +210,7 @@ launchctl start com.music-collector
 ```
 1. 擷取新曲目（13 個來源）
 2. Spotify 更新（僅有新曲目時）：搜尋 → 加入歌單 → 備份
-3. Apple Music 匯入（無論是否有新曲目都執行）：匯出 CSV → TuneMyMusic 轉移
+3. Apple Music 匯入（無論是否有新曲目都執行）：從 Spotify API 匯出 CSV（官方元資料） → TuneMyMusic 轉移
 4. 發送通知
 ```
 

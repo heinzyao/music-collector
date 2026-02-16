@@ -13,11 +13,84 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import BACKUP_DIR, PLAYLIST_NAME
+from .spotify import get_spotify_client, get_or_create_playlist
 
 logger = logging.getLogger(__name__)
 
 # 匯出檔案目錄
 EXPORT_DIR = BACKUP_DIR.parent / "exports"
+
+
+def export_from_spotify(playlist_name: str | None = None) -> Path | None:
+    """直接從 Spotify API 讀取歌單曲目並匯出為 CSV。
+
+    相比 export_csv()（從備份 JSON 讀取），此函式使用 Spotify 官方元資料，
+    確保 artist/title 與 Spotify 一致，提升 TuneMyMusic 匯入 Apple Music 的匹配率。
+
+    Args:
+        playlist_name: 播放清單名稱（同時用於搜尋 Spotify 歌單與 CSV 檔名）
+
+    Returns:
+        匯出檔案路徑，或 None（若失敗）
+    """
+    name = playlist_name or PLAYLIST_NAME
+
+    try:
+        sp = get_spotify_client()
+        playlist_id = get_or_create_playlist(sp, name=name)
+    except Exception as e:
+        logger.error(f"Spotify 連線失敗：{e}")
+        print(f"錯誤：無法連線 Spotify — {e}")
+        return None
+
+    # 分頁取得所有曲目
+    tracks: list[tuple[str, str]] = []
+    results = sp.playlist_items(
+        playlist_id,
+        fields="items(track(name,artists(name))),next",
+    )
+    while results:
+        for item in results["items"]:
+            track = item.get("track")
+            if not track:
+                continue
+            artist = ", ".join(a["name"] for a in track["artists"])
+            title = track["name"]
+            tracks.append((artist, title))
+        if results.get("next"):
+            results = sp.next(results)
+        else:
+            break
+
+    if not tracks:
+        print("Spotify 歌單中無曲目")
+        return None
+
+    # 去重（case-insensitive）
+    seen: set[tuple[str, str]] = set()
+    unique: list[tuple[str, str]] = []
+    for artist, title in tracks:
+        key = (artist.lower(), title.lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append((artist, title))
+
+    # 建立匯出目錄與檔案
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r'[<>:"/\\|?*]', '_', name)
+    export_path = EXPORT_DIR / f"{safe_name}.csv"
+
+    # 寫入 CSV
+    with export_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Artist", "Title"])
+        for artist, title in unique:
+            writer.writerow([artist, title])
+
+    print(f"\n✅ 已從 Spotify 匯出 {len(unique)} 首曲目（原始 {len(tracks)} 首，去重後 {len(unique)} 首）")
+    print(f"   {export_path}")
+
+    return export_path
 
 
 def _find_backup(query: str) -> Path | None:
