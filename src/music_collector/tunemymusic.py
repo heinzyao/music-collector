@@ -640,8 +640,11 @@ def _delete_existing_apple_music_playlist(driver: webdriver.Chrome, name: str) -
     此函式在轉移前透過 Apple Music API 找到並刪除同名播放清單，
     讓新建的播放清單成為唯一副本。
 
-    若 API 不可用或無同名播放清單，靜默跳過。
+    策略：
+    1. MusicKit JS / fetch API（若可用）
+    2. macOS Music.app（透過 osascript/AppleScript）
     """
+    web_api_succeeded = False
     try:
         result = driver.execute_script(
             _APPLE_MUSIC_API_JS
@@ -649,8 +652,7 @@ def _delete_existing_apple_music_playlist(driver: webdriver.Chrome, name: str) -
             var targetName = arguments[0];
 
             if (!canUseMusicKitApi && !canUseFetch) {
-                return {status: 'skip', reason: 'Cannot access Apple Music API',
-                        debug: _apiDebugInfo()};
+                return {status: 'no_api', debug: _apiDebugInfo()};
             }
 
             try {
@@ -695,31 +697,73 @@ def _delete_existing_apple_music_playlist(driver: webdriver.Chrome, name: str) -
             name,
         )
 
-        if not result:
-            logger.debug("Apple Music 刪除回傳空結果")
-            return
-
-        status = result.get("status", "unknown")
-        if status == "ok":
-            found = result.get("found", 0)
-            deleted = result.get("deleted", 0)
-            mode = result.get("mode", "?")
-            logger.info(
-                f"已刪除 {deleted}/{found} 個同名 Apple Music 播放清單"
-                f"「{name}」（透過 {mode}）"
-            )
-        elif status == "skip":
-            reason = result.get("reason", "")
-            debug = result.get("debug", {})
-            logger.info(f"跳過刪除 Apple Music 播放清單：{reason}")
-            if debug:
-                logger.debug(f"Apple Music API 診斷：{debug}")
-        else:
-            reason = result.get("reason", "")
-            logger.warning(f"刪除 Apple Music 播放清單失敗：{reason}")
+        if result:
+            status = result.get("status", "unknown")
+            if status == "ok":
+                found = result.get("found", 0)
+                deleted = result.get("deleted", 0)
+                mode = result.get("mode", "?")
+                logger.info(
+                    f"已刪除 {deleted}/{found} 個同名 Apple Music 播放清單"
+                    f"「{name}」（透過 {mode}）"
+                )
+                web_api_succeeded = True
+            elif status == "skip":
+                reason = result.get("reason", "")
+                logger.info(f"跳過刪除 Apple Music 播放清單：{reason}")
+                web_api_succeeded = True  # 無需 fallback
+            elif status == "no_api":
+                logger.info("MusicKit JS 不可用，將使用 Music.app 刪除")
+            else:
+                reason = result.get("reason", "")
+                logger.warning(f"Web API 刪除失敗（{reason}），嘗試 Music.app")
 
     except Exception as e:
-        logger.debug(f"刪除 Apple Music 播放清單時發生例外（靜默跳過）：{e}")
+        logger.debug(f"Web API 刪除例外：{e}")
+
+    if web_api_succeeded:
+        return
+
+    # --- Fallback: macOS Music.app (osascript) ---
+    if sys.platform != "darwin":
+        logger.warning("非 macOS 環境，無法透過 Music.app 刪除")
+        return
+
+    _delete_via_music_app(name)
+
+
+def _delete_via_music_app(name: str) -> None:
+    """透過 macOS Music.app (AppleScript) 刪除同名播放清單。"""
+    if not _find_playlist_in_music_app(name):
+        logger.info(f"Music.app 中無同名播放清單「{name}」，跳過刪除")
+        return
+
+    escaped = _escape_applescript(name)
+    script = (
+        'tell application "Music"\n'
+        f'  set matches to (every playlist whose name is "{escaped}")\n'
+        '  repeat with p in matches\n'
+        '    delete p\n'
+        '  end repeat\n'
+        f'  return (count of matches) as text\n'
+        "end tell"
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        count = result.stdout.strip()
+        if result.returncode == 0 and count:
+            logger.info(f"已透過 Music.app 刪除 {count} 個同名播放清單「{name}」")
+        else:
+            logger.warning(f"Music.app 刪除失敗：{result.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        logger.warning("Music.app 刪除逾時")
+    except Exception as e:
+        logger.warning(f"Music.app 刪除例外：{e}")
 
 
 def _rename_apple_music_playlist(
@@ -839,6 +883,33 @@ def _rename_apple_music_playlist(
     _rename_via_music_app(target_name, csv_stem)
 
 
+def _escape_applescript(s: str) -> str:
+    """AppleScript 字串中的反斜線與雙引號轉義。"""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _find_playlist_in_music_app(name: str) -> bool:
+    """檢查 Music.app 中是否存在指定名稱的播放清單。"""
+    escaped = _escape_applescript(name)
+    script = (
+        'tell application "Music"\n'
+        f'  set matches to (every playlist whose name is "{escaped}")\n'
+        '  if (count of matches) > 0 then return "found"\n'
+        '  return "not_found"\n'
+        "end tell"
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.stdout.strip() == "found"
+    except Exception:
+        return False
+
+
 def _rename_via_music_app(target_name: str, csv_stem: str) -> None:
     """透過 macOS Music.app (AppleScript) 改名播放清單。
 
@@ -850,65 +921,31 @@ def _rename_via_music_app(target_name: str, csv_stem: str) -> None:
     if csv_stem and csv_stem != target_name:
         candidates.append(csv_stem)
 
-    # 等待 iCloud 同步（最多 60 秒）
+    # 等待 iCloud 同步（漸進式退避，最多約 3 分鐘）
     logger.info("等待 Music.app iCloud 同步...")
     found_name = None
-    for attempt in range(12):
+    wait_intervals = [5, 5, 5, 10, 10, 10, 15, 15, 20, 20, 25, 30]  # 共約 170 秒
+    for attempt, wait in enumerate(wait_intervals):
         for name in candidates:
-            # AppleScript 中的引號需要轉義
-            escaped = name.replace("\\", "\\\\").replace('"', '\\"')
-            script = (
-                'tell application "Music"\n'
-                f'  set matches to (every playlist whose name is "{escaped}")\n'
-                '  if (count of matches) > 0 then return "found"\n'
-                '  return "not_found"\n'
-                "end tell"
-            )
-            try:
-                result = subprocess.run(
-                    ["osascript", "-e", script],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if result.stdout.strip() == "found":
-                    found_name = name
-                    break
-            except Exception:
-                pass
+            if _find_playlist_in_music_app(name):
+                found_name = name
+                break
         if found_name:
             break
-        time.sleep(5)
+        logger.debug(f"同步等待第 {attempt + 1}/{len(wait_intervals)} 次，{wait} 秒後重試")
+        time.sleep(wait)
 
     if not found_name:
         # 也確認目標名稱是否已存在（可能已經是正確的）
-        escaped_target = target_name.replace("\\", "\\\\").replace('"', '\\"')
-        try:
-            result = subprocess.run(
-                [
-                    "osascript",
-                    "-e",
-                    f'tell application "Music"\n'
-                    f'  set matches to (every playlist whose name is "{escaped_target}")\n'
-                    f'  if (count of matches) > 0 then return "found"\n'
-                    f'  return "not_found"\n'
-                    f"end tell",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.stdout.strip() == "found":
-                logger.info(f"Apple Music 播放清單名稱已正確：{target_name}")
-                return
-        except Exception:
-            pass
+        if _find_playlist_in_music_app(target_name):
+            logger.info(f"Apple Music 播放清單名稱已正確：{target_name}")
+            return
         logger.warning(f"Music.app 中找不到候選播放清單 {candidates}，可能尚未同步完成")
         return
 
     # 改名
-    escaped_old = found_name.replace("\\", "\\\\").replace('"', '\\"')
-    escaped_new = target_name.replace("\\", "\\\\").replace('"', '\\"')
+    escaped_old = _escape_applescript(found_name)
+    escaped_new = _escape_applescript(target_name)
     rename_script = (
         'tell application "Music"\n'
         f'  set targetPlaylist to first playlist whose name is "{escaped_old}"\n'
