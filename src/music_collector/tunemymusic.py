@@ -771,7 +771,7 @@ def _rename_apple_music_playlist(
 ) -> None:
     """將 TuneMyMusic 新建的 Apple Music 播放清單改名為正確名稱。
 
-    TuneMyMusic 建立播放清單時使用預設名稱（如 "My Playkist"）而非 CSV 檔名
+    TuneMyMusic 建立播放清單時使用預設名稱（如 "My playlist"）而非 CSV 檔名
     或使用者指定的名稱。
 
     改名策略（依優先順序）：
@@ -780,7 +780,7 @@ def _rename_apple_music_playlist(
     3. macOS Music.app（透過 osascript/AppleScript，等待 iCloud 同步後改名）
 
     播放清單搜尋策略：
-    1. 名稱為 "My Playkist"（TuneMyMusic 預設名稱）
+    1. 名稱為 "My playlist" 或 "My Playkist"（TuneMyMusic 預設名稱）
     2. 名稱為 CSV 檔名（不含副檔名）
     3. 若 target_name 已存在則跳過（名稱已正確）
     """
@@ -810,7 +810,7 @@ def _rename_apple_music_playlist(
                     return {status: 'skip', reason: 'Playlist already has correct name'};
                 }
 
-                var candidateNames = ['My Playkist'];
+                var candidateNames = ['My playlist', 'My Playkist'];
                 if (csvStem && csvStem !== targetName) {
                     candidateNames.push(csvStem);
                 }
@@ -917,7 +917,7 @@ def _rename_via_music_app(target_name: str, csv_stem: str) -> None:
     此函式等待同步完成後將播放清單改名。
     """
     # 候選名稱
-    candidates = ["My Playkist"]
+    candidates = ["My playlist", "My Playkist"]
     if csv_stem and csv_stem != target_name:
         candidates.append(csv_stem)
 
@@ -1425,7 +1425,7 @@ def import_to_apple_music(
         else:
             print("\n  轉移可能仍在進行中，請在瀏覽器中確認。")
 
-        # 9.5 改名播放清單（TuneMyMusic 預設名稱為 "My Playkist"）
+        # 9.5 改名播放清單（TuneMyMusic 預設名稱為 "My playlist"）
         if playlist_name:
             time.sleep(2)  # 等待 Apple Music 後端同步
             _rename_apple_music_playlist(driver, playlist_name, csv_path)

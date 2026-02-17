@@ -159,7 +159,7 @@ TuneMyMusic 使用 Next.js + CSS Modules，class name 為 hash（如 `MusicServi
 
 - **名稱設定（雙重保障）**：
   - **UI 層**（best-effort）：`_set_playlist_name()` 在「Choose Destination」步驟前嘗試找到可編輯欄位修改名稱，但 TuneMyMusic UI 經常變動，可能失敗
-  - **API 層**（可靠）：`_rename_apple_music_playlist()` 在轉移完成後透過 MusicKit JS API（`PATCH /v1/me/library/playlists/{id}`）將播放清單改名為 `PLAYLIST_NAME`，搜尋候選名稱 "My Playkist"（TuneMyMusic 預設）或 CSV 檔名
+  - **API 層**（可靠）：`_rename_apple_music_playlist()` 在轉移完成後透過 MusicKit JS API（`PATCH /v1/me/library/playlists/{id}`）將播放清單改名為 `PLAYLIST_NAME`，搜尋候選名稱 "My playlist"/"My Playkist"（TuneMyMusic 預設）或 CSV 檔名
 - **去重策略**：TuneMyMusic 每次轉移必定建立新播放清單，`_delete_existing_apple_music_playlist()` 在授權完成後、開始轉移前，先嘗試 MusicKit JS API 刪除同名舊播放清單，若 API 不可用則 fallback 至 Music.app (osascript) 刪除
 - `import_to_apple_music()` 接受 `playlist_name` 參數，由 `main.py` 傳入 `PLAYLIST_NAME`
 
