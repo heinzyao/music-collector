@@ -742,10 +742,10 @@ def _delete_via_music_app(name: str) -> None:
     script = (
         'tell application "Music"\n'
         f'  set matches to (every playlist whose name is "{escaped}")\n'
-        '  repeat with p in matches\n'
-        '    delete p\n'
-        '  end repeat\n'
-        f'  return (count of matches) as text\n'
+        "  repeat with p in matches\n"
+        "    delete p\n"
+        "  end repeat\n"
+        f"  return (count of matches) as text\n"
         "end tell"
     )
     try:
@@ -932,7 +932,9 @@ def _rename_via_music_app(target_name: str, csv_stem: str) -> None:
                 break
         if found_name:
             break
-        logger.debug(f"同步等待第 {attempt + 1}/{len(wait_intervals)} 次，{wait} 秒後重試")
+        logger.debug(
+            f"同步等待第 {attempt + 1}/{len(wait_intervals)} 次，{wait} 秒後重試"
+        )
         time.sleep(wait)
 
     if not found_name:
@@ -975,32 +977,52 @@ def _rename_via_music_app(target_name: str, csv_stem: str) -> None:
 def _select_upload_source(driver: webdriver.Chrome) -> bool:
     """選擇「上傳檔案」作為來源。"""
     # name 屬性最穩定（不受語系與 CSS 模組 hash 影響）
+    # TuneMyMusic 依瀏覽器 locale 切換 title/aria-label：
+    #   英文環境：'Upload file'
+    #   中文環境：'上傳文件'
     selectors = [
-        "button[name='FromFile']",
-        "button[title='Upload file']",
-        "button[aria-label='Upload file']",
+        "button[name='FromFile']",           # ← 最穩定，不受語系影響
+        "button[title='Upload file']",        # 英文 locale
+        "button[title='上傳文件']",            # 中文 locale
+        "button[aria-label='Upload file']",   # 英文 locale
+        "button[aria-label='上傳文件']",       # 中文 locale
         "//button[contains(@title, 'Upload')]",
         "//button[contains(@title, '上傳')]",
         "//button[contains(@aria-label, 'Upload')]",
+        "//button[contains(@aria-label, '上傳')]",
+        # /transfer 頁面可能的額外 selector
+        "[data-testid='source-FromFile']",
+        "[data-testid='FromFile']",
     ]
 
-    # 先滾動頁面以顯示更多選項
-    driver.execute_script("window.scrollBy(0, 500)")
+    # 等待 React SPA 實際渲染來源選擇按鈕（避免固定 sleep 在慢速環境失敗）
+    # 優先以 button[name='FromFile'] 作為「頁面已就緒」的信號
+    logger.info("等待來源選擇頁面載入...")
+    try:
+        WebDriverWait(driver, WAIT_TIMEOUT).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button[name='FromFile']"))
+        )
+        logger.info("來源選擇頁面已就緒")
+    except TimeoutException:
+        logger.warning("等待 button[name='FromFile'] 逾時，仍嘗試後備 selectors")
+
+    # 先滾動頁面至頂端以確保按鈕可見
+    driver.execute_script("window.scrollTo(0, 0)")
     time.sleep(0.5)
 
     for selector in selectors:
         try:
             by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
-            element = WebDriverWait(driver, 5).until(
+            element = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((by, selector))
             )
             element.click()
-            logger.info("已選擇「上傳檔案」")
+            logger.info(f"已選擇「上傳檔案」（selector: {selector}）")
             return True
         except TimeoutException:
             continue
 
-    logger.error("找不到「上傳檔案」按鈕")
+    logger.error(f"找不到「上傳檔案」按鈕，當前 URL: {driver.current_url}")
     _save_debug_screenshot(driver, "select_upload_source")
     return False
 
@@ -1360,14 +1382,30 @@ def import_to_apple_music(
         driver.get(TUNEMYMUSIC_URL)
         time.sleep(2)
 
+        # 1.1 確認頁面載入正確的入口（避免已登入用戶看到後台頁面）
+        # TuneMyMusic 依 locale 重導向：/transfer → /zh/transfer 或 /en/transfer
+        # 因此判斷 URL 是否包含 '/transfer'（不限語系前綴）
+        if "/transfer" not in driver.current_url:
+            logger.info("導航至轉移入口頁面...")
+            driver.get(f"{TUNEMYMUSIC_URL}transfer")
+            # 等待 locale 重導向完成（URL 穩定後再繼續）
+            try:
+                WebDriverWait(driver, 10).until(
+                    lambda d: "/transfer" in d.current_url
+                )
+                logger.info(f"已導航至 {driver.current_url}")
+            except TimeoutException:
+                logger.warning("等待 /transfer 重導向逾時，繼續嘗試")
+
         # 1.5 關閉 cookie 同意彈窗（若存在）
         _dismiss_cookie_consent(driver)
         time.sleep(1)
 
         # 2. 選擇「上傳檔案」作為來源
+        # _select_upload_source 內部會等待 React 渲染完成
         if not _select_upload_source(driver):
             return False
-        time.sleep(3)  # 等待 SPA 導航至 /transfer 頁面
+        time.sleep(3)  # 等待 SPA 導航至下一步（上傳 CSV）
 
         # 3. 上傳 CSV 檔案
         if not _upload_file(driver, csv_path):

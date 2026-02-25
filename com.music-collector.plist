@@ -31,6 +31,9 @@
     <key>StandardErrorPath</key>
     <string>/Users/Henry/Project/music-collector/data/collector.log</string>
 
+    <key>TimeOut</key>
+    <integer>3600</integer>
+
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
