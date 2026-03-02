@@ -99,7 +99,11 @@ PYTHONPATH=src uv run python auth.py
 # 匯出備份供多平台匯入
 ./run.sh --export Q1              # CSV 格式
 ./run.sh --export Q1 --format txt # 純文字格式
+./run.sh --export Q1 --all        # 包含 Spotify 未找到的曲目
 ./run.sh --export-spotify-url     # 輸出 Spotify 連結供轉換
+
+# 手動匯出並自動透過 TuneMyMusic 匯入 Apple Music（需開啟瀏覽器）
+./run.sh --import Q1
 
 # 資料分析
 ./run.sh --stats              # 總覽
@@ -111,6 +115,9 @@ PYTHONPATH=src uv run python auth.py
 
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset
+
+# 排程專用：蒐集後自動同步 Apple Music（由 launchd 觸發）
+./run.sh --apple-music
 ```
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`，可直接傳遞所有參數。

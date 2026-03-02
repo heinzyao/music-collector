@@ -19,7 +19,7 @@ from .bandcamp import BandcampDailyScraper
 from .quietus import TheQuietusScraper
 
 ALL_SCRAPERS = [
-    PitchforkScraper(),         # Pitchfork — RSS 擷取
+    PitchforkScraper(),         # Pitchfork — HTML 擷取
     StereogumScraper(),         # Stereogum — RSS 擷取
     LineOfBestFitScraper(),     # The Line of Best Fit — HTML 擷取
     ConsequenceScraper(),       # Consequence of Sound — HTML 擷取

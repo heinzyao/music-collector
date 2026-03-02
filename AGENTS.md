@@ -98,6 +98,6 @@ main          ← 穩定版本
 - [x] **多平台輸出**：Spotify 播放清單 URL 匯出（供 TuneMyMusic/Soundiiz 轉換至 YouTube Music、Tidal 等）
 - [x] **通知系統**：LINE + Telegram + Slack 多通道推送
 - [x] **資料分析**：曲目趨勢、跨來源重疊分析、來源效能比較（--stats CLI）
-- [x] **測試覆蓋**：82 項測試（pytest + respx mock），涵蓋 13 個擷取器
+- [x] **測試覆蓋**：43 項測試（pytest + respx mock），涵蓋 13 個擷取器
 - [x] **容器化**：Dockerfile + docker-compose.yml + GitHub Actions CI/CD
 - [x] **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
