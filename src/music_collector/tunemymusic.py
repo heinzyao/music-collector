@@ -974,6 +974,166 @@ def _rename_via_music_app(target_name: str, csv_stem: str) -> None:
         logger.warning(f"Music.app 改名例外：{e}")
 
 
+def _deduplicate_apple_music_playlists(
+    driver: webdriver.Chrome, name: str
+) -> None:
+    """合併同名 Apple Music 播放清單，只保留最新的一個。
+
+    TuneMyMusic 每次轉移都會建立新播放清單，若先前的刪除步驟失敗，
+    會導致出現多個同名播放清單。此函式在轉移完成後清理重複項目。
+
+    策略（依優先順序）：
+    1. MusicKit JS / fetch API（含分頁，取得所有播放清單）
+    2. macOS Music.app（透過 osascript/AppleScript）
+    """
+    web_api_succeeded = False
+    try:
+        result = driver.execute_script(
+            _APPLE_MUSIC_API_JS
+            + """
+            var targetName = arguments[0];
+
+            if (!canUseMusicKitApi && !canUseFetch) {
+                return {status: 'no_api', debug: _apiDebugInfo()};
+            }
+
+            try {
+                // 分頁取得所有播放清單
+                var allPlaylists = [];
+                var offset = 0;
+                var limit = 100;
+                while (true) {
+                    var data = await apiGet(
+                        '/v1/me/library/playlists?limit=' + limit
+                        + '&offset=' + offset
+                    );
+                    var page = data.data || [];
+                    allPlaylists = allPlaylists.concat(page);
+                    if (page.length < limit || !data.next) break;
+                    offset += limit;
+                }
+
+                // 找出所有同名播放清單
+                var matches = allPlaylists.filter(function(p) {
+                    return p.attributes &&
+                           p.attributes.name === targetName;
+                });
+
+                if (matches.length <= 1) {
+                    return {
+                        status: 'skip',
+                        reason: 'No duplicates (found ' + matches.length + ')'
+                    };
+                }
+
+                // 依 dateAdded 降冪排序，保留最新的
+                matches.sort(function(a, b) {
+                    var dateA = (a.attributes.dateAdded || '');
+                    var dateB = (b.attributes.dateAdded || '');
+                    return dateB.localeCompare(dateA);
+                });
+
+                var keep = matches[0];
+                var deleted = [];
+                for (var i = 1; i < matches.length; i++) {
+                    try {
+                        await apiDelete(
+                            '/v1/me/library/playlists/' + matches[i].id
+                        );
+                        deleted.push(matches[i].id);
+                    } catch(e) {
+                        // 單一刪除失敗不影響其他
+                    }
+                }
+
+                return {
+                    status: 'ok',
+                    kept: keep.id,
+                    found: matches.length,
+                    deleted: deleted.length,
+                    mode: canUseMusicKitApi ? 'musickit' : 'fetch'
+                };
+            } catch(e) {
+                return {status: 'error', reason: e.toString()};
+            }
+        """,
+            name,
+        )
+
+        if result:
+            status = result.get("status", "unknown")
+            if status == "ok":
+                found = result.get("found", 0)
+                deleted = result.get("deleted", 0)
+                mode = result.get("mode", "?")
+                logger.info(
+                    f"已合併 Apple Music 播放清單「{name}」："
+                    f"找到 {found} 個，刪除 {deleted} 個重複（透過 {mode}）"
+                )
+                web_api_succeeded = True
+            elif status == "skip":
+                reason = result.get("reason", "")
+                logger.info(f"無需合併 Apple Music 播放清單：{reason}")
+                web_api_succeeded = True
+            elif status == "no_api":
+                logger.info("MusicKit JS 不可用，將使用 Music.app 合併")
+            else:
+                reason = result.get("reason", "")
+                logger.warning(f"Web API 合併失敗（{reason}），嘗試 Music.app")
+
+    except Exception as e:
+        logger.debug(f"Web API 合併例外：{e}")
+
+    if web_api_succeeded:
+        return
+
+    # --- Fallback: macOS Music.app (osascript) ---
+    if sys.platform != "darwin":
+        logger.warning("非 macOS 環境，無法透過 Music.app 合併")
+        return
+
+    _deduplicate_via_music_app(name)
+
+
+def _deduplicate_via_music_app(name: str) -> None:
+    """透過 macOS Music.app (AppleScript) 刪除同名播放清單的重複項目。"""
+    escaped = _escape_applescript(name)
+    script = (
+        'tell application "Music"\n'
+        f'  set matches to (every playlist whose name is "{escaped}")\n'
+        '  set matchCount to count of matches\n'
+        '  if matchCount < 2 then return "0"\n'
+        '  set removed to 0\n'
+        '  repeat while matchCount > 1\n'
+        '    delete item 1 of matches\n'
+        '    set removed to removed + 1\n'
+        f'    set matches to (every playlist whose name is "{escaped}")\n'
+        '    set matchCount to count of matches\n'
+        '  end repeat\n'
+        '  return removed as text\n'
+        'end tell'
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        count = result.stdout.strip()
+        if result.returncode == 0 and count and count != "0":
+            logger.info(
+                f"已透過 Music.app 刪除 {count} 個重複播放清單「{name}」"
+            )
+        elif result.returncode == 0:
+            logger.info(f"Music.app 中無重複播放清單「{name}」")
+        else:
+            logger.warning(f"Music.app 合併失敗：{result.stderr.strip()}")
+    except subprocess.TimeoutExpired:
+        logger.warning("Music.app 合併逾時")
+    except Exception as e:
+        logger.warning(f"Music.app 合併例外：{e}")
+
 def _select_upload_source(driver: webdriver.Chrome) -> bool:
     """選擇「上傳檔案」作為來源。"""
     # name 屬性最穩定（不受語系與 CSS 模組 hash 影響）
@@ -1467,6 +1627,11 @@ def import_to_apple_music(
         if playlist_name:
             time.sleep(2)  # 等待 Apple Music 後端同步
             _rename_apple_music_playlist(driver, playlist_name, csv_path)
+
+        # 10. 清理重複的同名播放清單（安全網：若步驟 7.5 刪除失敗仍可修復）
+        if playlist_name:
+            time.sleep(2)  # 等待 Apple Music 後端同步
+            _deduplicate_apple_music_playlists(driver, playlist_name)
 
         # 完成後等待 3 秒讓使用者看到結果
         time.sleep(3)
