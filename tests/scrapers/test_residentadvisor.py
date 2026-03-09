@@ -2,6 +2,7 @@
 
 import respx
 import httpx
+from unittest.mock import patch
 
 from tests.conftest import load_fixture
 from music_collector.scrapers.residentadvisor import ResidentAdvisorScraper
@@ -27,9 +28,13 @@ class TestResidentAdvisorScraper:
         assert tracks[1].title == "Honey"
 
     @respx.mock
+    @patch("music_collector.scrapers.base.ENABLE_PLAYWRIGHT", False)
     def test_js_detection_empty_page(self):
         html = "<html><body>short</body></html>"
         respx.get("https://ra.co/reviews/singles").mock(
+            return_value=httpx.Response(200, text=html)
+        )
+        respx.get("https://ra.co/tracks").mock(
             return_value=httpx.Response(200, text=html)
         )
 

@@ -38,9 +38,15 @@ class ComplexScraper(BaseScraper):
 
             soup = BeautifulSoup(resp.text, "lxml")
 
-            # 偵測 JS 渲染：如果頁面內容極少或含有 JS 挑戰標記
+            # 偵測 JS 渲染：如果頁面內容極少、含 JS 挑戰標記、或缺少文章連結
             body_text = soup.get_text(strip=True)
-            if len(body_text) < 200 or self._is_js_blocked(body_text):
+            content_selectors = soup.select("h2 a, h3 a, article a, .post-title a")
+            needs_js = (
+                len(body_text) < 200
+                or self._is_js_blocked(body_text)
+                or not content_selectors
+            )
+            if needs_js:
                 # 嘗試 Playwright fallback
                 html = self._get_rendered(url, wait_selector="article, .music, h2")
                 if html:
@@ -51,7 +57,7 @@ class ComplexScraper(BaseScraper):
                         "Complex：網站為 JS 重度渲染，無法以靜態 HTML 擷取。"
                         "設定 ENABLE_PLAYWRIGHT=true 以啟用瀏覽器渲染。"
                     )
-                    return tracks
+                    continue
 
             for heading in soup.select("h2 a, h3 a, article a, .post-title a")[
                 :MAX_TRACKS_PER_SOURCE

@@ -38,7 +38,20 @@ class ResidentAdvisorScraper(BaseScraper):
 
             # 偵測 JS 渲染：RA 為 Next.js 應用，靜態 HTML 幾乎無內容
             body_text = soup.get_text(strip=True)
-            if len(body_text) < 500:
+            content_selectors = soup.select(
+                "li a, article a, [class*='track'] a, [class*='Track'] a, h3 a"
+            )
+            # 檢查是否有任何可解析為「藝人 – 曲名」的連結（而非僅導航連結）
+            has_parseable = any(
+                self.parse_artist_title(self.clean_text(el.get_text()))
+                for el in content_selectors
+            )
+            needs_js = (
+                len(body_text) < 500
+                or self._is_js_blocked(body_text)
+                or not has_parseable
+            )
+            if needs_js:
                 # 嘗試 Playwright fallback
                 html = self._get_rendered(
                     url,
@@ -52,7 +65,7 @@ class ResidentAdvisorScraper(BaseScraper):
                         "Resident Advisor：網站為 Next.js 單頁應用，"
                         "靜態 HTML 無有效內容。設定 ENABLE_PLAYWRIGHT=true 以啟用瀏覽器渲染。"
                     )
-                    return tracks
+                    continue
 
             # RA 為 React 應用，嘗試從伺服器端渲染的 HTML 中提取
             for item in soup.select(

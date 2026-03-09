@@ -2,6 +2,7 @@
 
 import respx
 import httpx
+from unittest.mock import patch
 
 from tests.conftest import load_fixture
 from music_collector.scrapers.complex import ComplexScraper
@@ -24,6 +25,7 @@ class TestComplexScraper:
         assert tracks[0].source == "Complex"
 
     @respx.mock
+    @patch("music_collector.scrapers.base.ENABLE_PLAYWRIGHT", False)
     def test_js_detection(self):
         html = "<html><body>Just a moment... enable javascript cloudflare</body></html>"
         respx.get("https://www.complex.com/music").mock(
@@ -35,6 +37,7 @@ class TestComplexScraper:
         assert tracks == []
 
     @respx.mock
+    @patch("music_collector.scrapers.base.ENABLE_PLAYWRIGHT", False)
     def test_empty_body_js_detection(self):
         html = "<html><body>short</body></html>"
         respx.get("https://www.complex.com/music").mock(
