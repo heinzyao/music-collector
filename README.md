@@ -1,16 +1,304 @@
 # Music Collector
 
+[English](#english) | [繁體中文](#繁體中文)
+
+---
+
+## English
+
+Automatically collects "Best New Track" recommendations from major global music review websites and syncs them to Spotify and Apple Music.
+
+### Feature Overview
+
+The following workflow is executed automatically every day:
+
+```text
+13 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Auto-export CSV → TuneMyMusic Automation → Apple Music Sync → LINE Notification
+```
+
+#### Core Features
+
+- **Spotify Search Validation**: Dual verification combining artist name and track title to ensure that the added song corresponds with the original source.
+- **Apple Music Automatic Sync**: Automates the TuneMyMusic process via Selenium, smoothly integrating the new playlist into Apple Music.
+- **Quarterly Archiving**: Automatically moves expired tracks out of the main playlist into an archived playlist (`Critics' Picks — YYYY QN`) per quarter.
+- **Browser State Retention**: Maintains Apple ID login session autonomously, ensuring the pipeline can be fully automated after the preliminary authorization.
+- **Multi-channel Notifications**: Sends execution summaries containing the sync results across the two major platforms via LINE, Telegram, and Slack.
+- **Local Backup**: Retains quarterly backup copies of all track metadata under a `data/backups/YYYY/QN.json` structure.
+- **Multi-platform Export**: Generates Spotify URLs capable of being imported into TuneMyMusic or Soundiiz to be mapped into YouTube Music, Tidal, etc.
+- **Data Analysis**: Features source-contribution statistics, Spotify match rates, and cross-reference overlap analysis.
+- **Web Interface**: A Streamlit environment to view historical logs, data distribution, and backup archives.
+- **Playwright Support**: Provides seamless fallback to browser-rendering for Javascript-heavy scraping targets.
+
+#### Supported Music Media Outlets
+
+| Source | Format | Method | Status |
+|--------|--------|--------|--------|
+| Pitchfork | HTML | `/reviews/best/tracks/` Best track index | Stable |
+| Stereogum | RSS | `stereogum.com/feed/` Filtered by singles category | Stable |
+| The Line of Best Fit | HTML | Tracks parsed from `/tracks` path | Stable |
+| Consequence | HTML | Filtered through Weekly Highlights | Stable |
+| NME | HTML | Targeted by individual `/reviews/track` pages | Stable |
+| SPIN | HTML | Parses the `/new-music/` directory | Stable |
+| Rolling Stone | HTML | Combines index pages along with track features | Stable |
+| Slant Magazine | HTML | `/music/` track review pages (includes JS verification) | Stable |
+| Complex | HTML | Extracts from `/music` (requires Playwright fallback) | JS rendered |
+| Resident Advisor | HTML | Queries `ra.co/reviews/singles` (requires Playwright fallback) | JS rendered |
+| Gorilla vs. Bear | RSS | Retrieves `gorillavsbear.net/feed/` via mp3/video filtering | Stable |
+| Bandcamp Daily | RSS | Uses `daily.bandcamp.com/feed` pointing to Album of the Day | Stable |
+| The Quietus | RSS | Parses `thequietus.com/feed` via Reviews designation | Stable |
+
+### Quick Start
+
+#### Requirements
+
+- Python 3.14+
+- [uv](https://docs.astral.sh/uv/) Toolkit / Dependency Manager
+- Spotify Developer Dashboard credentials ([Register Here](https://developer.spotify.com/dashboard))
+
+#### Installation
+
+```bash
+git clone https://github.com/heinzyao/music-collector.git
+cd music-collector
+uv sync
+```
+
+#### Configuring Credentials
+
+1. Clone `.env.example` as `.env`:
+
+```bash
+cp .env.example .env
+```
+
+2. **Spotify** (Mandatory): Setup an application at the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), note down the `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`. Configure `http://127.0.0.1:8888/callback` as a valid Redirect URI.
+
+3. **Notifications** (Optional):
+   - **LINE**: In the [LINE Developers Console](https://developers.line.biz/console/), register `LINE_CHANNEL_ID`, `LINE_CHANNEL_SECRET`, `LINE_USER_ID`.
+   - **Telegram**: Initialize via [@BotFather](https://t.me/BotFather), enter `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+   - **Slack**: Setup an Incoming Webhook, copy the path into `SLACK_WEBHOOK_URL`.
+
+4. Initial Spotify OAuth flow (A browser will be invoked to securely log in):
+
+```bash
+PYTHONPATH=src uv run python auth.py
+```
+
+#### Executing the script
+
+```bash
+# Complete flow (Parse + Spotify Upload + Backup + Notify)
+./run.sh
+
+# Dry mode (Parse elements WITHOUT saving to database or services)
+./run.sh --dry-run
+
+# Show recently scraped items for the past N days
+./run.sh --recent 7
+
+# Display all backup quarters
+./run.sh --backup
+
+# Fetch backup statistics for a specific quarter (E.g. Q1, 2026Q1, 2026/Q1)
+./run.sh --backup Q1
+
+# Multi-platform exports
+./run.sh --export Q1              # standard CSV format
+./run.sh --export Q1 --format txt # text format list
+./run.sh --export Q1 --all        # include items ignored by Spotify
+./run.sh --export-spotify-url     # output Spotify URLs for TuneMyMusic
+
+# Automate synchronization manually via TuneMyMusic -> Apple Music
+./run.sh --import Q1
+
+# Analysis Metrics
+./run.sh --stats              # Overview
+./run.sh --stats overlap      # Display duplicates across sites
+./run.sh --stats sources      # Source ranking
+
+# Web App
+./run.sh --web
+
+# Erase the timeline and the database to restart syncing
+./run.sh --reset
+
+# Cron routine: Fetch newly matched tracks and push directly to Apple Music
+./run.sh --apple-music
+```
+
+> Note: Using `run.sh` acts simply as a macro to `PYTHONPATH=src uv run python -m music_collector`.
+
+### Spotify Playlist Control
+
+#### Structure
+
+| Playlist | Usage |
+|----------|-------|
+| **Critics' Picks — Fresh Tracks** | Primary target playlist consisting strictly of the new quarter |
+| **Critics' Picks — 2026 Q1** | Indexed archive listing all songs from 2026, Quarter 1 |
+| **Critics' Picks — 2025 Q4** | Indexed archive listing all songs from 2025, Quarter 4 |
+| ... | Generates automatically in succession |
+
+#### The Archiving Loop Process
+
+A validation pass runs iteratively during script execution over the main playlist to identify stale artifacts:
+1. Calculates track longevity strictly upon Spotify's recorded `added_at` stamp to observe its corresponding quarter framework.
+2. An autonomous instance of a quarterly archiving playlist (E.g., `Critics' Picks — 2026 Q1`) targets expired metrics.
+3. Obsolete entries transition into the allocated backlog and disappear from the `Fresh Tracks` sequence.
+4. Active, timely selections continue mapping naturally in the active environment.
+
+### Project Structure
+
+```text
+music-collector/
+├── pyproject.toml                  # Settings & pip requirements
+├── .env.example                    # Environment variable templates
+├── run.sh                          # CLI manual execution macro
+├── auth.py                         # Single-use Spotify OAuth authenticator
+├── Dockerfile                      # Docker Build directives
+├── docker-compose.yml              # Standardized services
+├── com.music-collector.plist       # macOS OS-level launchd directive
+├── .github/workflows/ci.yml       # GitHub Actions CI testing stack
+├── src/
+│   └── music_collector/
+│       ├── __main__.py             # Base CLI runner root
+│       ├── main.py                 # Core routing handling (Concurrent scraping)
+│       ├── config.py               # Constants mapping to ENV files
+│       ├── spotify.py              # Extends spotipy
+│       ├── db.py                   # Deduplication and local SQLite persistence
+│       ├── backup.py               # Produces the JSON quarter log logic
+│       ├── export.py               # Serializes the outputs to CSV/TXT/Spotify URL vectors
+│       ├── notify.py               # Dispatching hooks utilizing Webhooks
+│       ├── stats.py                # Mathematical overlapping evaluation
+│       ├── web.py                  # Local frontend driven by Streamlit
+│       ├── apple_music/            # Integrates directly to Apple Music
+│       │   ├── __init__.py
+│       │   ├── browser.py          # Chrome Driver handler & Anti-bot stealth logic
+│       │   ├── playlist.py         # Extends AppleScript & MusicKit to create logic
+│       │   └── transfer.py         # Automate the visual TuneMyMusic GUI interaction
+│       ├── tunemymusic.py          # Bridging backward compatibility logic
+│       └── scrapers/
+│           ├── __init__.py         # Global Scraper Repository Array (13 Modules)
+│           ├── base.py             # Skeleton implementation logic extending beautifulsoup + Playwright
+│           ├── pitchfork.py        # Pitchfork (HTML)
+│           ├── stereogum.py        # Stereogum (RSS)
+│           ├── lineofbestfit.py    # The Line of Best Fit
+│           ├── consequence.py      # Consequence of Sound
+│           ├── nme.py              # NME
+│           ├── spin.py             # SPIN
+│           ├── rollingstone.py     # Rolling Stone
+│           ├── slant.py            # Slant Magazine
+│           ├── complex.py          # Complex (+ Playwright)
+│           ├── residentadvisor.py  # Resident Advisor (+ Playwright)
+│           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
+│           ├── bandcamp.py         # Bandcamp Daily (RSS)
+│           └── quietus.py          # The Quietus (RSS)
+├── tests/
+│   ├── conftest.py                 # PyTest standard fixtures
+│   ├── fixtures/html/              # Embedded sample testing mock HTML models
+│   └── scrapers/                   # Individual unittests verifying array outputs
+└── data/
+    ├── tracks.db                   # Main memory cache SQLite DB
+    ├── collector.log               # CLI activity tracing log stream
+    ├── browser_profile/            # User-Data Chrome profiles matching Selenium logins (Apple ID persistence)
+    ├── backups/                    # Target log dump folder
+    └── exports/                    # External output container
+```
+
+### Docker Deployments
+
+```bash
+# Prepare image
+docker compose build
+
+# Command trigger
+docker compose run collector
+
+# Dry trigger
+docker compose run collector --dry-run
+
+# Run Analytics Engine
+docker compose run collector --stats
+```
+
+### Daily Automation
+
+#### macOS launchd (Preferred Methodology)
+
+```bash
+cp com.music-collector.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.music-collector.plist
+```
+
+This binds an automatic timer executing around 09:00 locally every day. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
+
+#### crontab Option
+
+```bash
+0 9 * * * cd /path/to/music-collector && PYTHONPATH=src uv run python -m music_collector >> data/collector.log 2>&1
+```
+
+### Tech Stack / Selection Justification
+
+| Architecture | System | Methodology / Rationale |
+|--------------|--------|-------------------------|
+| Ecosystem Tooling | uv | Extremely fast lockfile handling |
+| Network Transport | httpx | Inherently asynchronous processing patterns |
+| Document Tracing | BeautifulSoup + lxml | Dependable DOM tree traversal mechanisms |
+| Document Tracing | feedparser | De Facto RSS compliance parser |
+| Rendering Engine | Playwright (Available On-Demand) | Executes Chrome instances implicitly via headless React interception |
+| Audio API Layer | Spotify (via spotipy) | Streamlines Bearer logic inside automation intervals |
+| DB Layering | SQLite | High capability logic with 0 dependencies required to execute |
+| Signaling Layer | httpx (API endpoint logic) | Bridges LINE / Telegram without additional SDK bloatware required |
+| Interface Layer | Streamlit (On-Demand) | Connects intuitively directly to sqlite for fast GUI interactions |
+| Remote CI Pipeline | GitHub Actions | Configured automatically via ruff and pytest compliance standards Python 3.14+ |
+| Sandboxing Model | Docker | Extends a python:3.14-slim instance + uv preinstalled environment |
+
+### Contributions & Enhancements
+
+#### Writing additional modules
+
+Append any logic structure directly utilizing the `BaseScraper` class:
+
+```python
+from .base import BaseScraper, Track
+
+class NewSourceScraper(BaseScraper):
+    name = "New Source"
+
+    def fetch_tracks(self) -> list[Track]:
+        # Custom logic implementation bounds here
+        return [Track(artist="...", title="...", source=self.name)]
+```
+
+Add your scraper directly inside the `scrapers/__init__.py` under the `ALL_SCRAPERS` list array.
+
+#### Multi-Agent Synergy
+
+- **CLAUDE.md** — Preconfigured Claude system behavioral file mapping prompts appropriately
+- **AGENTS.md** — Interaction schema logic documenting workflows directly implemented within the Antigravity scope
+- Code segments run autonomously per scraper object; breaking errors inherently bounce back independently without terminating system instances.
+- SQLite remains as the fundamental local context registry tracking global dependencies.
+
+### License
+
+MIT License
+
+---
+
+## 繁體中文
+
 自動從全球主要音樂評論網站蒐集「最佳新曲」推薦，並同步至 Spotify 與 Apple Music。
 
-## 功能概覽
+### 功能概覽
 
 每日自動執行以下流程：
 
-```
+```text
 13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 自動匯出 CSV → TuneMyMusic 自動化 → Apple Music 同步 → LINE 通知
 ```
 
-### 核心功能
+#### 核心功能
 
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
 - **Apple Music 自動同步**：透過 Selenium 自動化 TuneMyMusic 流程，將新歌單無縫接軌至 Apple Music
@@ -23,7 +311,7 @@
 - **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
 - **Playwright 支援**：JS 重度渲染網站自動 fallback 至瀏覽器渲染
 
-### 支援的音樂媒體來源
+#### 支援的音樂媒體來源
 
 | 來源 | 類型 | 擷取方式 | 狀態 |
 |------|------|----------|------|
@@ -41,15 +329,15 @@
 | Bandcamp Daily | RSS | `daily.bandcamp.com/feed` Album of the Day | 穩定 |
 | The Quietus | RSS | `thequietus.com/feed` 過濾 Reviews 分類 | 穩定 |
 
-## 快速開始
+### 快速開始
 
-### 前置需求
+#### 前置需求
 
 - Python 3.14+
 - [uv](https://docs.astral.sh/uv/) 套件管理工具
 - Spotify 開發者帳號（[申請](https://developer.spotify.com/dashboard)）
 
-### 安裝
+#### 安裝
 
 ```bash
 git clone https://github.com/heinzyao/music-collector.git
@@ -57,7 +345,7 @@ cd music-collector
 uv sync
 ```
 
-### 設定憑證
+#### 設定憑證
 
 1. 複製 `.env.example` 為 `.env`：
 
@@ -78,7 +366,7 @@ cp .env.example .env
 PYTHONPATH=src uv run python auth.py
 ```
 
-### 使用方式
+#### 使用方式
 
 ```bash
 # 完整執行（擷取 + Spotify + 備份 + 通知）
@@ -122,9 +410,9 @@ PYTHONPATH=src uv run python auth.py
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`，可直接傳遞所有參數。
 
-## Spotify 播放清單管理
+### Spotify 播放清單管理
 
-### 播放清單結構
+#### 播放清單結構
 
 | 播放清單 | 用途 |
 |----------|------|
@@ -133,7 +421,7 @@ PYTHONPATH=src uv run python auth.py
 | **Critics' Picks — 2025 Q4** | 歸檔清單，2025 年第 4 季的曲目 |
 | ... | 依此類推，自動建立 |
 
-### 季度歸檔機制
+#### 季度歸檔機制
 
 每次執行時自動檢查主播放清單中是否有「前季」曲目：
 1. 依據 Spotify `added_at` 時間判斷曲目所屬季度
@@ -141,9 +429,9 @@ PYTHONPATH=src uv run python auth.py
 3. 將過季曲目移入歸檔清單，從主清單移除
 4. 當季曲目留在主清單中
 
-## 專案結構
+### 專案結構
 
-```
+```text
 music-collector/
 ├── pyproject.toml                  # 專案設定與依賴
 ├── .env.example                    # 環境變數範本
@@ -199,7 +487,7 @@ music-collector/
     └── exports/                    # 匯出檔案
 ```
 
-## Docker 部署
+### Docker 部署
 
 ```bash
 # 建置映像
@@ -215,9 +503,9 @@ docker compose run collector --dry-run
 docker compose run collector --stats
 ```
 
-## 每日自動排程
+### 每日自動排程
 
-### macOS launchd（建議）
+#### macOS launchd（建議）
 
 ```bash
 cp com.music-collector.plist ~/Library/LaunchAgents/
@@ -226,13 +514,13 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 
 預設每日 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
 
-### crontab 替代方案
+#### crontab 替代方案
 
 ```bash
 0 9 * * * cd /path/to/music-collector && PYTHONPATH=src uv run python -m music_collector >> data/collector.log 2>&1
 ```
 
-## 技術選型
+### 技術選型
 
 | 元件 | 選擇 | 原因 |
 |------|------|------|
@@ -248,9 +536,9 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 | CI/CD | GitHub Actions | Python 3.14 + uv + ruff + pytest |
 | 容器化 | Docker | python:3.14-slim + uv |
 
-## 擴充與協作
+### 擴充與協作
 
-### 新增擷取器
+#### 新增擷取器
 
 繼承 `BaseScraper` 即可新增來源：
 
@@ -267,13 +555,13 @@ class NewSourceScraper(BaseScraper):
 
 並在 `scrapers/__init__.py` 的 `ALL_SCRAPERS` 中註冊。
 
-### Agent 協作
+#### Agent 協作
 
 - **CLAUDE.md** — Claude Code 專案指引
 - **AGENTS.md** — 多 Agent 協作規範（OpenCode、Antigravity Agent）
 - 每個擷取器獨立模組，失敗不影響其他來源
 - SQLite 資料庫提供共享狀態
 
-## 授權條款
+### 授權條款
 
 MIT License
