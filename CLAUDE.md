@@ -74,12 +74,16 @@ docker compose run collector --dry-run
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
 - `src/music_collector/export.py` — 匯出為 CSV/TXT（`export_from_spotify()` 直接從 Spotify API 讀取官方元資料；舊函式 `export_csv()`/`export_playlist()` 從備份 JSON 讀取）+ Spotify URL 匯出
-- `src/music_collector/tunemymusic.py` — Selenium 自動化 TuneMyMusic 匯入 Apple Music
+- `src/music_collector/apple_music/` — Apple Music 自動匯入（模組化套件）
+  - `browser.py` — Chrome driver 建立與反偵測措施
+  - `playlist.py` — 播放清單管理（MusicKit JS API + AppleScript）
+  - `transfer.py` — TuneMyMusic 自動化轉移主流程
+- `src/music_collector/tunemymusic.py` — 向後相容，重新匯出 `apple_music` 套件
 - `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
-- `src/music_collector/main.py` — 主流程與 CLI
-- `tests/` — 43 項測試（pytest + respx mock）
+- `src/music_collector/main.py` — 主流程與 CLI（13 個擷取器透過 `asyncio.gather` 並行執行）
+- `tests/` — 82 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
 

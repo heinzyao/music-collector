@@ -156,7 +156,7 @@ music-collector/
 ├── src/
 │   └── music_collector/
 │       ├── __main__.py             # CLI 進入點
-│       ├── main.py                 # 主流程調度器
+│       ├── main.py                 # 主流程調度器（並行擷取）
 │       ├── config.py               # 環境變數與常數
 │       ├── spotify.py              # Spotify API 整合
 │       ├── db.py                   # SQLite 曲目紀錄與去重
@@ -165,7 +165,12 @@ music-collector/
 │       ├── notify.py               # LINE + Telegram + Slack 通知
 │       ├── stats.py                # 資料分析模組
 │       ├── web.py                  # Streamlit Web 介面
-│       ├── tunemymusic.py          # Apple Music 自動匯入
+│       ├── apple_music/            # Apple Music 自動匯入（模組化）
+│       │   ├── __init__.py
+│       │   ├── browser.py          # Chrome driver 與反偵測
+│       │   ├── playlist.py         # 播放清單管理（MusicKit JS + AppleScript）
+│       │   └── transfer.py         # TuneMyMusic 自動化轉移
+│       ├── tunemymusic.py          # 向後相容（重新匯出 apple_music）
 │       └── scrapers/
 │           ├── __init__.py         # 擷取器註冊表（13 個）
 │           ├── base.py             # 基礎擷取器（含 Playwright）

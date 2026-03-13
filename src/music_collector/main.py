@@ -13,6 +13,7 @@
 """
 
 import argparse
+import asyncio
 import logging
 from pathlib import Path
 
@@ -56,21 +57,39 @@ def _count_csv_tracks(csv_path: Path) -> int | None:
         return None
 
 
+def _fetch_from_scraper(scraper) -> tuple[str, list[Track]]:
+    """執行單一擷取器，回傳 (scraper name, tracks)。錯誤時回傳空列表。"""
+    try:
+        return scraper.name, scraper.fetch_tracks()
+    except Exception as e:
+        logger.warning(f"{scraper.name} 擷取失敗：{e}")
+        return scraper.name, []
+
+
 def collect_tracks() -> list[Track]:
-    """執行所有擷取器，回傳尚未紀錄的新曲目。"""
+    """平行執行所有擷取器，回傳尚未紀錄的新曲目。
+
+    使用 asyncio.to_thread 將各擷取器的同步 fetch_tracks() 發送至
+    執行緒池平行執行，避免 I/O 等待時間疊加。13 個來源原本依序約需
+    30-60 秒，平行化後約 5-10 秒。
+    """
+
+    async def _collect_all() -> list[tuple[str, list[Track]]]:
+        tasks = [
+            asyncio.to_thread(_fetch_from_scraper, scraper)
+            for scraper in ALL_SCRAPERS
+        ]
+        return await asyncio.gather(*tasks)
+
+    results = asyncio.run(_collect_all())
+
     conn = init_db()
     new_tracks: list[Track] = []
 
-    for scraper in ALL_SCRAPERS:
-        try:
-            tracks = scraper.fetch_tracks()
-            for track in tracks:
-                # 比對資料庫，過濾已存在的曲目
-                if not track_exists(conn, track.artist, track.title):
-                    new_tracks.append(track)
-        except Exception as e:
-            # 單一擷取器失敗不影響其他來源
-            logger.warning(f"{scraper.name} 擷取失敗：{e}")
+    for scraper_name, tracks in results:
+        for track in tracks:
+            if not track_exists(conn, track.artist, track.title):
+                new_tracks.append(track)
 
     conn.close()
     return new_tracks
@@ -190,7 +209,7 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
             csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
 
             if csv_path:
-                from .tunemymusic import import_to_apple_music
+                from .apple_music import import_to_apple_music
 
                 track_count = _count_csv_tracks(csv_path)
                 success = import_to_apple_music(
@@ -319,7 +338,7 @@ def main() -> None:
         # 直接從 Spotify API 匯出（確保 artist/title 與 Spotify 一致）
         csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
         if csv_path:
-            from .tunemymusic import import_to_apple_music
+            from .apple_music import import_to_apple_music
 
             track_count = _count_csv_tracks(csv_path)
             success = import_to_apple_music(

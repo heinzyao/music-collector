@@ -1,0 +1,692 @@
+"""TuneMyMusic UI 自動化：上傳 CSV、選擇目標、執行轉移。"""
+
+import logging
+import time
+from pathlib import Path
+
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+from .browser import (
+    TUNEMYMUSIC_URL,
+    WAIT_TIMEOUT,
+    AUTH_TIMEOUT,
+    create_driver,
+    dismiss_cookie_consent,
+    save_debug_screenshot,
+)
+from .playlist import (
+    delete_existing_playlist,
+    rename_playlist,
+    deduplicate_playlists,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _upload_file(driver: webdriver.Chrome, csv_path: str) -> bool:
+    """上傳 CSV 檔案。
+
+    TuneMyMusic 使用 React 動態渲染 dropzone 元件，
+    input[type='file'] 在點擊「Upload file」來源後才會由 React 建立。
+    需要等待 SPA 頁面切換與 React hydration 完成。
+    """
+    try:
+        # 等待 SPA 導航（URL 可能變更至 /transfer）
+        for _ in range(WAIT_TIMEOUT):
+            if "/transfer" in driver.current_url:
+                logger.info(f"已導航至 {driver.current_url}")
+                break
+            time.sleep(1)
+
+        # 使用 JavaScript 輪詢 input[type='file']，
+        # 因為 React dropzone 元件可能延遲掛載
+        file_input = None
+        for attempt in range(WAIT_TIMEOUT):
+            # 嘗試用 JS 直接查找（包含隱藏元素）
+            inputs = driver.execute_script(
+                "return document.querySelectorAll('input[type=\"file\"]')"
+            )
+            if inputs:
+                file_input = inputs[0]
+                break
+
+            # 嘗試點擊 dropzone 區域以觸發元件渲染
+            if attempt == 5:
+                try:
+                    dropzone = driver.find_element(
+                        By.XPATH,
+                        "//*[contains(text(), 'Choose a file') or "
+                        "contains(text(), 'drag') or "
+                        "contains(text(), '選擇檔案') or "
+                        "contains(text(), '拖曳')]",
+                    )
+                    dropzone.click()
+                    logger.info("已點擊上傳區域")
+                except NoSuchElementException:
+                    pass
+
+            time.sleep(1)
+
+        if file_input is None:
+            # 最終嘗試：用 Selenium 標準方式等待
+            file_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
+            )
+
+        # 確保 input 可互動（移除所有隱藏屬性與限制）
+        driver.execute_script(
+            "var el = arguments[0];"
+            "el.style.display = 'block';"
+            "el.style.visibility = 'visible';"
+            "el.style.opacity = '1';"
+            "el.style.width = '200px';"
+            "el.style.height = '30px';"
+            "el.style.position = 'fixed';"
+            "el.style.top = '0';"
+            "el.style.left = '0';"
+            "el.style.zIndex = '99999';"
+            "el.removeAttribute('hidden');"
+            "el.removeAttribute('aria-hidden');"
+            "el.className = '';",
+            file_input,
+        )
+        time.sleep(0.5)  # 讓瀏覽器重新 layout
+        file_input.send_keys(csv_path)
+        logger.info(f"已上傳檔案：{csv_path}")
+        return True
+    except (TimeoutException, Exception) as e:
+        # 記錄頁面狀態以便除錯
+        logger.error(f"找不到檔案上傳欄位：{e}")
+        logger.debug(f"當前 URL：{driver.current_url}")
+        try:
+            body_text = driver.execute_script(
+                "return document.body ? document.body.innerText.substring(0, 500) : ''"
+            )
+            logger.debug(f"頁面內容片段：{body_text}")
+        except Exception:
+            pass
+        save_debug_screenshot(driver, "upload_file")
+        return False
+
+
+def _click_continue_button(driver: webdriver.Chrome) -> bool:
+    """點擊繼續/確認按鈕。
+
+    TuneMyMusic 各步驟的「Continue」或「Choose Destination」按鈕
+    統一使用 name='stickyButton' 屬性，這是最穩定的 selector。
+    按鈕文字在不同步驟會變化：
+    - Step 2 (field mapping): "Continue"
+    - Step 2 (playlist selection): "Choose Destination"
+    """
+    selectors = [
+        # 最穩定：所有步驟的 Continue/Choose Destination 共用此 name
+        "button[name='stickyButton']",
+        "//button[normalize-space(text())='Continue']",
+        "//button[normalize-space(text())='Choose Destination']",
+        "//button[normalize-space(text())='繼續']",
+        "//button[normalize-space(text())='選擇目的地']",
+        "//button[contains(text(), 'Next')]",
+    ]
+
+    for selector in selectors:
+        try:
+            by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
+            element = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((by, selector))
+            )
+            btn_text = element.text.strip() if element.text else "(no text)"
+            element.click()
+            logger.info(f"已點擊按鈕：{btn_text}")
+            time.sleep(1)  # 等待頁面轉換
+            return True
+        except TimeoutException:
+            continue
+
+    return False
+
+
+def _set_playlist_name(driver: webdriver.Chrome, name: str) -> None:
+    """設定 TuneMyMusic 的目標播放清單名稱。
+
+    TuneMyMusic 使用 CSV 檔名作為預設播放清單名稱，
+    但在「Choose Destination」步驟前有可編輯的 input 欄位可以修改。
+    此函式找到該欄位並設定為指定名稱。
+    """
+    # 嘗試多種 selector 找到播放清單名稱輸入欄位
+    name_selectors = [
+        # input 類型的編輯欄位
+        "input[name='playlistName']",
+        "input[name='playlist_name']",
+        "input[name='playlist-name']",
+        "input[placeholder*='playlist']",
+        "input[placeholder*='Playlist']",
+        # contentEditable 類型的編輯欄位
+        "[contenteditable='true']",
+        # 通用 input（排除 file input 和 hidden）
+        "input[type='text']",
+    ]
+
+    for selector in name_selectors:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            for element in elements:
+                # 跳過不可見或不相關的元素
+                if not element.is_displayed():
+                    continue
+
+                # 清除並設定新名稱
+                current_value = element.get_attribute("value") or element.text
+                if current_value:
+                    logger.info(
+                        f"找到播放清單名稱欄位（目前值：{current_value}），"
+                        f"設定為：{name}"
+                    )
+
+                # 使用 JavaScript 清除並設定值（比 clear() + send_keys() 更可靠）
+                is_input = element.tag_name.lower() == "input"
+                if is_input:
+                    driver.execute_script(
+                        "var el = arguments[0];"
+                        "el.focus();"
+                        "el.value = '';"
+                        "el.value = arguments[1];"
+                        "el.dispatchEvent(new Event('input', {bubbles: true}));"
+                        "el.dispatchEvent(new Event('change', {bubbles: true}));",
+                        element,
+                        name,
+                    )
+                else:
+                    # contentEditable
+                    driver.execute_script(
+                        "var el = arguments[0];"
+                        "el.focus();"
+                        "el.textContent = arguments[1];"
+                        "el.dispatchEvent(new Event('input', {bubbles: true}));",
+                        element,
+                        name,
+                    )
+
+                logger.info(f"已設定播放清單名稱為：{name}")
+                return
+        except (NoSuchElementException, Exception):
+            continue
+
+    # 最後嘗試：用 JavaScript 搜尋所有可能的 input 和 editable 元素
+    try:
+        result = driver.execute_script(
+            """
+            // 尋找包含檔名的 input
+            var inputs = document.querySelectorAll('input[type="text"], input:not([type])');
+            for (var i = 0; i < inputs.length; i++) {
+                var input = inputs[i];
+                if (input.offsetParent !== null && input.value && input.value.length > 0) {
+                    input.focus();
+                    input.value = '';
+                    input.value = arguments[0];
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                    input.dispatchEvent(new Event('change', {bubbles: true}));
+                    return 'input:' + i;
+                }
+            }
+            // 尋找 contentEditable 元素
+            var editables = document.querySelectorAll('[contenteditable="true"]');
+            for (var i = 0; i < editables.length; i++) {
+                var el = editables[i];
+                if (el.offsetParent !== null && el.textContent.trim().length > 0) {
+                    el.focus();
+                    el.textContent = arguments[0];
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                    return 'editable:' + i;
+                }
+            }
+            return null;
+        """,
+            name,
+        )
+
+        if result:
+            logger.info(f"已透過 JS 設定播放清單名稱為：{name}（元素：{result}）")
+            return
+    except Exception as e:
+        logger.debug(f"JS 搜尋播放清單名稱欄位失敗：{e}")
+
+    logger.warning(f"找不到播放清單名稱編輯欄位，將使用 CSV 檔名作為播放清單名稱")
+    save_debug_screenshot(driver, "set_playlist_name")
+
+
+def _select_upload_source(driver: webdriver.Chrome) -> bool:
+    """選擇「上傳檔案」作為來源。"""
+    selectors = [
+        "button[name='FromFile']",           # ← 最穩定，不受語系影響
+        "button[title='Upload file']",        # 英文 locale
+        "button[title='上傳文件']",            # 中文 locale
+        "button[aria-label='Upload file']",   # 英文 locale
+        "button[aria-label='上傳文件']",       # 中文 locale
+        "//button[contains(@title, 'Upload')]",
+        "//button[contains(@title, '上傳')]",
+        "//button[contains(@aria-label, 'Upload')]",
+        "//button[contains(@aria-label, '上傳')]",
+        "[data-testid='source-FromFile']",
+        "[data-testid='FromFile']",
+    ]
+
+    # 等待 React SPA 實際渲染來源選擇按鈕
+    logger.info("等待來源選擇頁面載入...")
+    try:
+        WebDriverWait(driver, WAIT_TIMEOUT).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "button[name='FromFile']"))
+        )
+        logger.info("來源選擇頁面已就緒")
+    except TimeoutException:
+        logger.warning("等待 button[name='FromFile'] 逾時，仍嘗試後備 selectors")
+
+    # 先滾動頁面至頂端以確保按鈕可見
+    driver.execute_script("window.scrollTo(0, 0)")
+    time.sleep(0.5)
+
+    for selector in selectors:
+        try:
+            by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
+            element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((by, selector))
+            )
+            element.click()
+            logger.info(f"已選擇「上傳檔案」（selector: {selector}）")
+            return True
+        except TimeoutException:
+            continue
+
+    logger.error(f"找不到「上傳檔案」按鈕，當前 URL: {driver.current_url}")
+    save_debug_screenshot(driver, "select_upload_source")
+    return False
+
+
+def _select_apple_music(driver: webdriver.Chrome) -> bool:
+    """選擇 Apple Music 作為目標。"""
+    selectors = [
+        "button[name='Apple']",
+        "button[title='Apple Music']",
+        "button[aria-label='Apple Music']",
+        "//button[@name='Apple']",
+        "//button[@title='Apple Music']",
+        "//*[contains(@title, 'Apple Music') and (self::button or self::div or self::a)]",
+    ]
+
+    # 等待目標選擇頁面載入（可能需要時間渲染）
+    time.sleep(2)
+
+    for selector in selectors:
+        try:
+            by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
+            element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((by, selector))
+            )
+            element.click()
+            logger.info("已選擇 Apple Music")
+            return True
+        except TimeoutException:
+            continue
+
+    logger.error("找不到 Apple Music 按鈕")
+    save_debug_screenshot(driver, "select_apple_music")
+    return False
+
+
+def _click_connect_button(driver: webdriver.Chrome) -> bool:
+    """點擊「連接」按鈕。"""
+    selectors = [
+        "//button[normalize-space(text())='Connect']",
+        "//button[normalize-space(text())='Sign in']",
+        "//button[contains(text(), 'Connect') and not(contains(text(), 'Processing'))]",
+        "//button[contains(text(), '連接')]",
+        "//button[contains(text(), 'Sign in')]",
+    ]
+
+    for selector in selectors:
+        try:
+            by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
+            element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((by, selector))
+            )
+            element.click()
+            logger.info("已點擊「連接」按鈕")
+            return True
+        except TimeoutException:
+            continue
+
+    return False
+
+
+def _wait_for_popup_auth(driver: webdriver.Chrome, main_window: str) -> bool:
+    """等待 Apple ID 彈窗出現、使用者登入、彈窗關閉。"""
+    print("\n" + "=" * 60)
+    print("  請在彈出的視窗中登入 Apple ID")
+    print("  完成授權後，此程式將自動繼續")
+    print("=" * 60 + "\n")
+
+    # 1. 等待 popup 視窗出現（最多 30 秒）
+    popup_handle = None
+    for _ in range(WAIT_TIMEOUT):
+        handles = driver.window_handles
+        new_handles = [h for h in handles if h != main_window]
+        if new_handles:
+            popup_handle = new_handles[0]
+            logger.info(f"偵測到 Apple ID 彈窗（共 {len(handles)} 個視窗）")
+            break
+        time.sleep(1)
+
+    if popup_handle is None:
+        logger.info("未偵測到彈窗，可能已有快取的授權 session")
+        return True
+
+    # 2. 切換至彈窗以記錄狀態（供除錯用）
+    try:
+        driver.switch_to.window(popup_handle)
+        popup_url = driver.current_url
+        logger.info(f"Apple ID 彈窗 URL：{popup_url}")
+    except Exception as e:
+        logger.warning(f"無法切換至彈窗：{e}")
+    finally:
+        driver.switch_to.window(main_window)
+
+    # 3. 等待彈窗關閉（使用者完成登入）
+    start_time = time.time()
+    while time.time() - start_time < AUTH_TIMEOUT:
+        handles = driver.window_handles
+        if popup_handle not in handles:
+            logger.info("Apple ID 彈窗已關閉（使用者完成登入）")
+            driver.switch_to.window(main_window)
+            return True
+
+        elapsed = int(time.time() - start_time)
+        if elapsed > 0 and elapsed % 30 == 0:
+            logger.info(f"仍在等待使用者完成 Apple ID 登入... ({elapsed}s)")
+
+        time.sleep(2)
+
+    logger.error("等待 Apple ID 登入逾時")
+    try:
+        driver.switch_to.window(main_window)
+    except Exception:
+        pass
+    return False
+
+
+def _wait_for_auth_completion(driver: webdriver.Chrome) -> bool:
+    """等待 Apple Music 授權完成：處理彈窗 + 確認主頁面進入轉移步驟。"""
+    main_window = driver.current_window_handle
+    logger.info(f"主視窗 handle：{main_window}")
+
+    if not _wait_for_popup_auth(driver, main_window):
+        return False
+
+    logger.info("等待主頁面進入轉移步驟...")
+    time.sleep(3)
+
+    strict_indicators = [
+        "//button[normalize-space(text())='Start Transfer']",
+        "//button[normalize-space(text())='Start transfer']",
+        "//button[contains(normalize-space(text()), 'Start Transfer')]",
+        "//button[contains(normalize-space(text()), 'Start transfer')]",
+        "//button[normalize-space(text())='開始轉移']",
+        "//button[@name='stickyButton' and contains(text(), 'Start')]",
+        "//button[@name='stickyButton' and contains(text(), '開始')]",
+    ]
+
+    start_time = time.time()
+    post_auth_timeout = 60
+    while time.time() - start_time < post_auth_timeout:
+        for selector in strict_indicators:
+            try:
+                element = driver.find_element(By.XPATH, selector)
+                btn_text = element.text.strip() if element.text else "(no text)"
+                logger.info(f"授權完成！偵測到轉移按鈕：{btn_text}")
+                return True
+            except NoSuchElementException:
+                continue
+
+        try:
+            driver.find_element(
+                By.XPATH,
+                "//*[contains(@class, 'progress') or contains(@class, 'Progress')]"
+                "[ancestor::*[contains(@class, 'transfer') or contains(@class, 'Transfer')]]",
+            )
+            logger.info("授權完成！偵測到轉移進度元素")
+            return True
+        except NoSuchElementException:
+            pass
+
+        time.sleep(2)
+
+    try:
+        page_text = driver.execute_script(
+            "return document.body ? document.body.innerText.substring(0, 1000) : ''"
+        )
+        logger.warning(f"授權後未偵測到轉移步驟，頁面內容片段：{page_text[:500]}")
+    except Exception:
+        pass
+
+    logger.error("授權完成但未能進入轉移步驟")
+    return False
+
+
+def _start_transfer(driver: webdriver.Chrome) -> bool:
+    """開始轉移。"""
+    selectors = [
+        "//button[contains(normalize-space(text()), 'Start Transfer')]",
+        "//button[contains(normalize-space(text()), 'Start transfer')]",
+        "//button[normalize-space(text())='開始轉移']",
+        "//button[@name='stickyButton' and contains(text(), 'Start')]",
+        "//button[@name='stickyButton' and contains(text(), '開始')]",
+    ]
+
+    for selector in selectors:
+        try:
+            by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
+            element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((by, selector))
+            )
+            btn_text = element.text.strip() if element.text else "(no text)"
+            element.click()
+            logger.info(f"已開始轉移（按鈕文字：{btn_text}）")
+            return True
+        except TimeoutException:
+            continue
+
+    return False
+
+
+def _wait_for_transfer_completion(driver: webdriver.Chrome) -> bool:
+    """等待轉移完成。"""
+    print("\n  正在轉移曲目至 Apple Music...")
+
+    completion_indicators = [
+        "//*[contains(text(), 'tracks transferred')]",
+        "//*[contains(text(), 'songs transferred')]",
+        "//*[contains(text(), '首曲目已轉移')]",
+        "//*[contains(text(), '已轉移')]",
+        "//*[contains(text(), 'Transfer Complete')]",
+        "//*[contains(text(), 'Transfer complete')]",
+        "//*[contains(text(), '轉移完成')]",
+        "//button[normalize-space(text())='Done']",
+        "//button[normalize-space(text())='完成']",
+        "//button[contains(text(), 'Move to another')]",
+        "//button[normalize-space(text())='Share']",
+    ]
+
+    failure_indicators = [
+        "//*[contains(text(), 'Transfer Failed')]",
+        "//*[contains(text(), 'Transfer failed')]",
+        "//*[contains(text(), 'Transfer error')]",
+        "//*[contains(text(), '轉移失敗')]",
+    ]
+
+    start_time = time.time()
+    last_log_time = start_time
+    while time.time() - start_time < AUTH_TIMEOUT:
+        for selector in completion_indicators:
+            try:
+                element = driver.find_element(By.XPATH, selector)
+                text = element.text.strip() if element.text else "(no text)"
+                logger.info(f"轉移完成！偵測到：{text}")
+                return True
+            except NoSuchElementException:
+                continue
+
+        for selector in failure_indicators:
+            try:
+                element = driver.find_element(By.XPATH, selector)
+                text = element.text.strip() if element.text else "(no text)"
+                logger.error(f"轉移失敗：{text}")
+                return False
+            except NoSuchElementException:
+                continue
+
+        elapsed = time.time() - start_time
+        if elapsed - (last_log_time - start_time) >= 30:
+            last_log_time = time.time()
+            try:
+                progress_text = driver.execute_script("""
+                    var texts = [];
+                    var elements = document.querySelectorAll('[class*="progress"], [class*="Progress"], [class*="percent"], [class*="count"]');
+                    elements.forEach(function(el) { if (el.textContent.trim()) texts.push(el.textContent.trim()); });
+                    return texts.join(' | ');
+                """)
+                if progress_text:
+                    logger.info(f"轉移進行中 ({int(elapsed)}s)：{progress_text[:200]}")
+                else:
+                    logger.info(f"轉移進行中 ({int(elapsed)}s)...")
+            except Exception:
+                logger.info(f"轉移進行中 ({int(elapsed)}s)...")
+
+        time.sleep(3)
+
+    logger.error("轉移逾時")
+    return False
+
+
+def import_to_apple_music(
+    csv_path: str,
+    keep_browser_open: bool = False,
+    playlist_name: str | None = None,
+) -> bool:
+    """將 CSV 檔案透過 TuneMyMusic 匯入 Apple Music。
+
+    Args:
+        csv_path: CSV 檔案的絕對路徑
+        keep_browser_open: 完成後是否保持瀏覽器開啟（預設自動關閉）
+        playlist_name: 目標播放清單名稱（若不指定則使用 CSV 檔名）
+
+    Returns:
+        是否成功
+    """
+    csv_path = str(Path(csv_path).resolve())
+
+    if not Path(csv_path).exists():
+        logger.error(f"CSV 檔案不存在：{csv_path}")
+        return False
+
+    print("\n  正在啟動瀏覽器...")
+    driver = create_driver()
+
+    try:
+        # 1. 開啟 TuneMyMusic
+        logger.info(f"正在開啟 {TUNEMYMUSIC_URL}")
+        driver.get(TUNEMYMUSIC_URL)
+        time.sleep(2)
+
+        # 1.1 確認頁面載入正確的入口
+        if "/transfer" not in driver.current_url:
+            logger.info("導航至轉移入口頁面...")
+            driver.get(f"{TUNEMYMUSIC_URL}transfer")
+            try:
+                WebDriverWait(driver, 10).until(
+                    lambda d: "/transfer" in d.current_url
+                )
+                logger.info(f"已導航至 {driver.current_url}")
+            except TimeoutException:
+                logger.warning("等待 /transfer 重導向逾時，繼續嘗試")
+
+        # 1.5 關閉 cookie 同意彈窗（若存在）
+        dismiss_cookie_consent(driver)
+        time.sleep(1)
+
+        # 2. 選擇「上傳檔案」作為來源
+        if not _select_upload_source(driver):
+            return False
+        time.sleep(3)
+
+        # 3. 上傳 CSV 檔案
+        if not _upload_file(driver, csv_path):
+            return False
+        time.sleep(10)
+
+        # 4. 點擊「繼續」通過中間步驟
+        for step in range(5):
+            if _click_continue_button(driver):
+                logger.info(f"已通過中間步驟（第 {step + 1} 次）")
+                time.sleep(10)
+            else:
+                break
+
+        # 4.5 設定播放清單名稱（在選擇目標之前）
+        if playlist_name:
+            _set_playlist_name(driver, playlist_name)
+            time.sleep(1)
+
+        # 5. 選擇 Apple Music 作為目標
+        if not _select_apple_music(driver):
+            return False
+        time.sleep(2)
+
+        # 6. 點擊「連接」並等待 Apple ID 授權
+        if not _click_connect_button(driver):
+            logger.warning("未找到 Connect 按鈕，嘗試繼續流程...")
+        time.sleep(3)
+
+        # 7. 等待授權完成
+        if not _wait_for_auth_completion(driver):
+            return False
+
+        # 7.5 刪除同名的現有 Apple Music 播放清單（避免重複）
+        if playlist_name:
+            delete_existing_playlist(driver, playlist_name)
+            time.sleep(2)
+
+        # 8. 開始轉移
+        if not _start_transfer(driver):
+            logger.warning("未找到 Start Transfer 按鈕，轉移可能已自動開始")
+
+        # 9. 等待轉移完成
+        if _wait_for_transfer_completion(driver):
+            print("\n  匯入完成！請至 Apple Music 確認播放清單。")
+            logger.info("匯入成功")
+        else:
+            print("\n  轉移可能仍在進行中，請在瀏覽器中確認。")
+
+        # 9.5 改名播放清單
+        if playlist_name:
+            time.sleep(2)
+            rename_playlist(driver, playlist_name, csv_path)
+
+        # 10. 清理重複的同名播放清單
+        if playlist_name:
+            time.sleep(2)
+            deduplicate_playlists(driver, playlist_name)
+
+        time.sleep(3)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"匯入失敗：{e}")
+        return False
+
+    finally:
+        if not keep_browser_open:
+            driver.quit()
+            logger.info("瀏覽器已關閉")
