@@ -108,7 +108,7 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1 --all        # include items ignored by Spotify
 ./run.sh --export-spotify-url     # output Spotify URLs for TuneMyMusic
 
-# Automate synchronization manually via TuneMyMusic -> Apple Music
+# Full run + Apple Music sync (Scrape → Spotify → Apple Music)
 ./run.sh --import Q1
 
 # Analysis Metrics
@@ -390,7 +390,7 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1 --all        # 包含 Spotify 未找到的曲目
 ./run.sh --export-spotify-url     # 輸出 Spotify 連結供轉換
 
-# 手動匯出並自動透過 TuneMyMusic 匯入 Apple Music（需開啟瀏覽器）
+# 完整執行 + Apple Music 同步（擷取 → Spotify → Apple Music）
 ./run.sh --import Q1
 
 # 資料分析

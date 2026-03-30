@@ -43,7 +43,7 @@ uv sync --all-extras
 # 輸出 Spotify 播放清單連結（供轉換至 YouTube Music / Tidal）
 ./run.sh --export-spotify-url
 
-# 自動匯入 Apple Music（開啟瀏覽器，需手動登入 Apple ID）
+# 完整執行 + Apple Music 同步（擷取 → Spotify → Apple Music）
 ./run.sh --import Q1
 
 # 資料分析
@@ -209,7 +209,7 @@ launchctl start com.music-collector
 
 ### 執行流程（`run(sync_apple_music=True)`）
 
-排程使用 `--apple-music` 旗標，執行順序嚴格保證 **Spotify 先完成，再進行 Apple Music**：
+排程使用 `--apple-music` 旗標，`--import` 亦觸發相同流程。執行順序嚴格保證 **Spotify 先完成，再進行 Apple Music**：
 
 ```
 1. 擷取新曲目（13 個來源）

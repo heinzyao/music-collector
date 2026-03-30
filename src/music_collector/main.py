@@ -8,7 +8,7 @@
     python -m music_collector --backup Q1  # 顯示指定季度備份內容
     python -m music_collector --export Q1  # 匯出 Q1 為 CSV（供 Apple Music 匯入）
     python -m music_collector --export Q1 --format txt  # 匯出為純文字
-    python -m music_collector --import Q1  # 匯出並自動匯入 Apple Music（需瀏覽器）
+    python -m music_collector --import Q1  # 完整執行（擷取 + Spotify + Apple Music 匯入）
     python -m music_collector --reset      # 清除歌單與資料庫，重新蒐集
 """
 
@@ -76,8 +76,7 @@ def collect_tracks() -> list[Track]:
 
     async def _collect_all() -> list[tuple[str, list[Track]]]:
         tasks = [
-            asyncio.to_thread(_fetch_from_scraper, scraper)
-            for scraper in ALL_SCRAPERS
+            asyncio.to_thread(_fetch_from_scraper, scraper) for scraper in ALL_SCRAPERS
         ]
         return await asyncio.gather(*tasks)
 
@@ -334,30 +333,6 @@ def main() -> None:
         show_stats(args.stats if args.stats else None)
     elif args.export_spotify_url:
         export_spotify_url()
-    elif args.import_quarter:
-        # 直接從 Spotify API 匯出（確保 artist/title 與 Spotify 一致）
-        csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
-        if csv_path:
-            from .apple_music import import_to_apple_music
-
-            track_count = _count_csv_tracks(csv_path)
-            success = import_to_apple_music(
-                str(csv_path), playlist_name=PLAYLIST_NAME
-            )
-            try:
-                send_apple_music_notification(
-                    success=success,
-                    track_count=track_count,
-                    playlist_name=PLAYLIST_NAME,
-                    error=None if success else "匯入流程失敗",
-                )
-            except Exception as e:
-                logger.warning(f"Apple Music 通知失敗：{e}")
-        else:
-            try:
-                send_apple_music_notification(success=False, error="匯出 CSV 失敗")
-            except Exception as e:
-                logger.warning(f"Apple Music 通知失敗：{e}")
     elif args.export:
         export_playlist(args.export, fmt=args.format, include_all=args.include_all)
     elif args.backup is not None:
@@ -370,4 +345,7 @@ def main() -> None:
     elif args.reset:
         reset()
     else:
-        run(dry_run=args.dry_run, sync_apple_music=args.apple_music)
+        run(
+            dry_run=args.dry_run,
+            sync_apple_music=args.apple_music or bool(args.import_quarter),
+        )
