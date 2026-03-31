@@ -261,11 +261,11 @@ def _set_playlist_name(driver: webdriver.Chrome, name: str) -> None:
 def _select_upload_source(driver: webdriver.Chrome) -> bool:
     """選擇「上傳檔案」作為來源。"""
     selectors = [
-        "button[name='FromFile']",           # ← 最穩定，不受語系影響
-        "button[title='Upload file']",        # 英文 locale
-        "button[title='上傳文件']",            # 中文 locale
-        "button[aria-label='Upload file']",   # 英文 locale
-        "button[aria-label='上傳文件']",       # 中文 locale
+        "button[name='FromFile']",  # ← 最穩定，不受語系影響
+        "button[title='Upload file']",  # 英文 locale
+        "button[title='上傳文件']",  # 中文 locale
+        "button[aria-label='Upload file']",  # 英文 locale
+        "button[aria-label='上傳文件']",  # 中文 locale
         "//button[contains(@title, 'Upload')]",
         "//button[contains(@title, '上傳')]",
         "//button[contains(@aria-label, 'Upload')]",
@@ -501,7 +501,12 @@ def _start_transfer(driver: webdriver.Chrome) -> bool:
 
 
 def _wait_for_transfer_completion(driver: webdriver.Chrome) -> bool:
-    """等待轉移完成。"""
+    """等待轉移完成。
+
+    注意：TuneMyMusic SPA 頁面中可能存在隱藏元素匹配 completion indicator，
+    必須檢查元素是否可見（is_displayed()）且包含有效文字，避免 false positive。
+    另外需等待一段起始延遲，確保 Start Transfer 按鈕點擊後頁面已開始轉移。
+    """
     print("\n  正在轉移曲目至 Apple Music...")
 
     completion_indicators = [
@@ -525,24 +530,40 @@ def _wait_for_transfer_completion(driver: webdriver.Chrome) -> bool:
         "//*[contains(text(), '轉移失敗')]",
     ]
 
+    # 起始延遲：等待頁面從「Start Transfer」狀態過渡到轉移中狀態，
+    # 避免匹配到轉移開始前頁面上的隱藏/殘留元素導致 false positive。
+    logger.info("等待轉移啟動（10 秒起始延遲）...")
+    time.sleep(10)
+
     start_time = time.time()
     last_log_time = start_time
     while time.time() - start_time < AUTH_TIMEOUT:
         for selector in completion_indicators:
             try:
-                element = driver.find_element(By.XPATH, selector)
-                text = element.text.strip() if element.text else "(no text)"
-                logger.info(f"轉移完成！偵測到：{text}")
-                return True
+                elements = driver.find_elements(By.XPATH, selector)
+                for element in elements:
+                    # 必須檢查元素可見且包含有效文字，避免匹配隱藏元素
+                    if not element.is_displayed():
+                        continue
+                    text = element.text.strip() if element.text else ""
+                    if not text:
+                        continue
+                    logger.info(f"轉移完成！偵測到：{text}")
+                    return True
             except NoSuchElementException:
                 continue
 
         for selector in failure_indicators:
             try:
-                element = driver.find_element(By.XPATH, selector)
-                text = element.text.strip() if element.text else "(no text)"
-                logger.error(f"轉移失敗：{text}")
-                return False
+                elements = driver.find_elements(By.XPATH, selector)
+                for element in elements:
+                    if not element.is_displayed():
+                        continue
+                    text = element.text.strip() if element.text else ""
+                    if not text:
+                        continue
+                    logger.error(f"轉移失敗：{text}")
+                    return False
             except NoSuchElementException:
                 continue
 
@@ -604,9 +625,7 @@ def import_to_apple_music(
             logger.info("導航至轉移入口頁面...")
             driver.get(f"{TUNEMYMUSIC_URL}transfer")
             try:
-                WebDriverWait(driver, 10).until(
-                    lambda d: "/transfer" in d.current_url
-                )
+                WebDriverWait(driver, 10).until(lambda d: "/transfer" in d.current_url)
                 logger.info(f"已導航至 {driver.current_url}")
             except TimeoutException:
                 logger.warning("等待 /transfer 重導向逾時，繼續嘗試")

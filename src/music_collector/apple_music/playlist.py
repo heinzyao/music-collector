@@ -149,17 +149,17 @@ def _deduplicate_via_music_app(name: str) -> None:
     script = (
         'tell application "Music"\n'
         f'  set matches to (every playlist whose name is "{escaped}")\n'
-        '  set matchCount to count of matches\n'
+        "  set matchCount to count of matches\n"
         '  if matchCount < 2 then return "0"\n'
-        '  set removed to 0\n'
-        '  repeat while matchCount > 1\n'
-        '    delete item 1 of matches\n'
-        '    set removed to removed + 1\n'
+        "  set deletedCount to 0\n"
+        "  repeat while matchCount > 1\n"
+        "    delete item 1 of matches\n"
+        "    set deletedCount to deletedCount + 1\n"
         f'    set matches to (every playlist whose name is "{escaped}")\n'
-        '    set matchCount to count of matches\n'
-        '  end repeat\n'
-        '  return removed as text\n'
-        'end tell'
+        "    set matchCount to count of matches\n"
+        "  end repeat\n"
+        "  return deletedCount as text\n"
+        "end tell"
     )
     try:
         result = subprocess.run(
@@ -170,9 +170,7 @@ def _deduplicate_via_music_app(name: str) -> None:
         )
         count = result.stdout.strip()
         if result.returncode == 0 and count and count != "0":
-            logger.info(
-                f"已透過 Music.app 刪除 {count} 個重複播放清單「{name}」"
-            )
+            logger.info(f"已透過 Music.app 刪除 {count} 個重複播放清單「{name}」")
         elif result.returncode == 0:
             logger.info(f"Music.app 中無重複播放清單「{name}」")
         else:
@@ -282,9 +280,7 @@ def delete_existing_playlist(driver: webdriver.Chrome, name: str) -> None:
     _delete_via_music_app(name)
 
 
-def rename_playlist(
-    driver: webdriver.Chrome, target_name: str, csv_path: str
-) -> None:
+def rename_playlist(driver: webdriver.Chrome, target_name: str, csv_path: str) -> None:
     """將 TuneMyMusic 新建的 Apple Music 播放清單改名為正確名稱。
 
     TuneMyMusic 建立播放清單時使用預設名稱（如 "My playlist"）而非 CSV 檔名
@@ -399,9 +395,7 @@ def rename_playlist(
     _rename_via_music_app(target_name, csv_stem)
 
 
-def deduplicate_playlists(
-    driver: webdriver.Chrome, name: str
-) -> None:
+def deduplicate_playlists(driver: webdriver.Chrome, name: str) -> None:
     """合併同名 Apple Music 播放清單，只保留最新的一個。
 
     TuneMyMusic 每次轉移都會建立新播放清單，若先前的刪除步驟失敗，
