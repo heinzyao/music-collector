@@ -21,6 +21,94 @@ logger = logging.getLogger(__name__)
 EXPORT_DIR = BACKUP_DIR.parent / "exports"
 
 
+def export_combined_spotify(playlist_name: str | None = None) -> Path | None:
+    """合併 Spotify 主歌單與所有歸檔歌單，匯出為單一 CSV。
+
+    用於一次性復原 Apple Music 累積歌單：將主歌單（當季）與所有
+    「Critics' Picks — YYYY QN」歸檔歌單的曲目合併去重後匯出。
+
+    Args:
+        playlist_name: CSV 檔名／Apple Music 歌單名稱
+
+    Returns:
+        匯出檔案路徑，或 None（若失敗）
+    """
+    name = playlist_name or PLAYLIST_NAME
+
+    try:
+        sp = get_spotify_client()
+    except Exception as e:
+        logger.error(f"Spotify 連線失敗：{e}")
+        print(f"錯誤：無法連線 Spotify — {e}")
+        return None
+
+    def _fetch_tracks(pid: str) -> list[tuple[str, str]]:
+        tracks: list[tuple[str, str]] = []
+        results = sp.playlist_items(pid, fields="items(track(name,artists(name))),next")
+        while results:
+            for item in results["items"]:
+                track = item.get("track")
+                if not track:
+                    continue
+                artist = ", ".join(a["name"] for a in track["artists"])
+                tracks.append((artist, track["name"]))
+            if results.get("next"):
+                results = sp.next(results)
+            else:
+                break
+        return tracks
+
+    all_tracks: list[tuple[str, str]] = []
+
+    main_id = get_or_create_playlist(sp, name=name)
+    main_tracks = _fetch_tracks(main_id)
+    all_tracks.extend(main_tracks)
+    logger.info(f"主歌單：{len(main_tracks)} 首")
+
+    offset = 0
+    while True:
+        playlists = sp.current_user_playlists(limit=50, offset=offset)
+        if not playlists:
+            break
+        for pl in playlists["items"]:
+            if pl["name"].startswith("Critics' Picks —") and pl["name"] != name:
+                archive_tracks = _fetch_tracks(pl["id"])
+                all_tracks.extend(archive_tracks)
+                logger.info(f"歸檔歌單 {pl['name']}：{len(archive_tracks)} 首")
+        if not playlists.get("next"):
+            break
+        offset += 50
+
+    if not all_tracks:
+        print("未找到任何曲目")
+        return None
+
+    seen: set[tuple[str, str]] = set()
+    unique: list[tuple[str, str]] = []
+    for artist, title in all_tracks:
+        key = (artist.lower(), title.lower())
+        if key not in seen:
+            seen.add(key)
+            unique.append((artist, title))
+
+    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
+    export_path = EXPORT_DIR / f"{safe_name}.csv"
+
+    with export_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["Artist", "Title"])
+        for artist, title in unique:
+            writer.writerow([artist, title])
+
+    print(
+        f"\n✅ 已合併匯出 {len(unique)} 首曲目（原始 {len(all_tracks)} 首，去重後 {len(unique)} 首）"
+    )
+    print(f"   {export_path}")
+
+    return export_path
+
+
 def export_from_spotify(playlist_name: str | None = None) -> Path | None:
     """直接從 Spotify API 讀取歌單曲目並匯出為 CSV。
 
@@ -77,7 +165,7 @@ def export_from_spotify(playlist_name: str | None = None) -> Path | None:
 
     # 建立匯出目錄與檔案
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = re.sub(r'[<>:"/\\|?*]', '_', name)
+    safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
     export_path = EXPORT_DIR / f"{safe_name}.csv"
 
     # 寫入 CSV
@@ -87,7 +175,9 @@ def export_from_spotify(playlist_name: str | None = None) -> Path | None:
         for artist, title in unique:
             writer.writerow([artist, title])
 
-    print(f"\n✅ 已從 Spotify 匯出 {len(unique)} 首曲目（原始 {len(tracks)} 首，去重後 {len(unique)} 首）")
+    print(
+        f"\n✅ 已從 Spotify 匯出 {len(unique)} 首曲目（原始 {len(tracks)} 首，去重後 {len(unique)} 首）"
+    )
     print(f"   {export_path}")
 
     return export_path
@@ -127,7 +217,9 @@ def get_current_quarter() -> str:
     return f"{now.year}Q{quarter}"
 
 
-def export_csv(query: str, spotify_only: bool = True, playlist_name: str | None = None) -> Path | None:
+def export_csv(
+    query: str, spotify_only: bool = True, playlist_name: str | None = None
+) -> Path | None:
     """匯出備份為 CSV 格式。
 
     Args:
@@ -158,11 +250,11 @@ def export_csv(query: str, spotify_only: bool = True, playlist_name: str | None 
 
     # 建立匯出目錄與檔案
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     # 使用播放清單名稱作為檔名（TuneMyMusic 會使用檔名作為歌單名稱）
     if playlist_name:
         # 移除檔名中不允許的字元
-        safe_name = re.sub(r'[<>:"/\\|?*]', '_', playlist_name)
+        safe_name = re.sub(r'[<>:"/\\|?*]', "_", playlist_name)
         export_path = EXPORT_DIR / f"{safe_name}.csv"
     else:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

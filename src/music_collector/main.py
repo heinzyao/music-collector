@@ -18,7 +18,12 @@ import logging
 from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
-from .export import export_from_spotify, export_playlist, export_spotify_url
+from .export import (
+    export_combined_spotify,
+    export_from_spotify,
+    export_playlist,
+    export_spotify_url,
+)
 from .stats import show_stats
 from .config import DB_PATH, PLAYLIST_NAME
 from .db import init_db, save_track, track_exists, get_recent_tracks
@@ -158,12 +163,6 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
         except Exception as e:
             logger.warning(f"舊播放清單合併失敗：{e}")
 
-        # 季度歸檔：將前季曲目移至歸檔清單
-        try:
-            archive_previous_quarters(sp, playlist_id)
-        except Exception as e:
-            logger.warning(f"季度歸檔失敗：{e}")
-
         conn = init_db()
         spotify_results: dict[tuple[str, str], str | None] = {}
 
@@ -204,14 +203,6 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     apple_music_status = None
     if sync_apple_music:
         try:
-            # 確保季度歸檔已執行（降低主歌單曲目數，避免超過 TuneMyMusic 免費上限）
-            try:
-                sp_am = get_spotify_client()
-                pid_am = get_or_create_playlist(sp_am)
-                archive_previous_quarters(sp_am, pid_am)
-            except Exception as e:
-                logger.warning(f"Apple Music 同步前歸檔失敗：{e}")
-
             logger.info("開始 Apple Music 同步流程...")
             csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
 
@@ -245,6 +236,15 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
                 send_apple_music_notification(success=False, error=str(e))
             except Exception as ne:
                 logger.warning(f"Apple Music 通知失敗：{ne}")
+
+    # 季度歸檔：在 Apple Music 同步完成後，才將前季曲目從 Spotify 主歌單移至歸檔清單
+    # 這確保 Apple Music 匯出時能取得完整歌單（含前季曲目），維持累積歌單模式
+    try:
+        sp_archive = get_spotify_client()
+        pid_archive = get_or_create_playlist(sp_archive)
+        archive_previous_quarters(sp_archive, pid_archive)
+    except Exception as e:
+        logger.warning(f"季度歸檔失敗：{e}")
 
     # 通知（LINE / Telegram / Slack）
     try:
@@ -329,6 +329,11 @@ def main() -> None:
         help="在蒐集完成後，自動將新歌單同步至 Apple Music（需使用瀏覽器）",
     )
     parser.add_argument("--web", action="store_true", help="啟動 Streamlit Web 介面")
+    parser.add_argument(
+        "--recover-apple-music",
+        action="store_true",
+        help="合併主歌單與所有歸檔歌單匯出 CSV，用於一次性復原 Apple Music 累積歌單",
+    )
     args = parser.parse_args()
 
     if args.web:
@@ -352,6 +357,13 @@ def main() -> None:
         show_recent(days=args.recent)
     elif args.reset:
         reset()
+    elif args.recover_apple_music:
+        csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
+        if csv_path:
+            print(f"\n📱 復原步驟：")
+            print(f"   1. 前往 https://www.tunemymusic.com/")
+            print(f"   2. 上傳 {csv_path}")
+            print(f"   3. 選擇 Apple Music 作為目標")
     else:
         run(
             dry_run=args.dry_run,
