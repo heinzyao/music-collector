@@ -1,5 +1,6 @@
 """TuneMyMusic UI 自動化：上傳 CSV、選擇目標、執行轉移。"""
 
+import csv
 import logging
 import time
 from pathlib import Path
@@ -23,6 +24,41 @@ from .playlist import (
     rename_playlist,
     deduplicate_playlists,
 )
+
+# TuneMyMusic 免費方案每次轉移上限
+MAX_TRACKS_PER_TRANSFER = 500
+
+
+def _split_csv(csv_path: str, max_tracks: int = MAX_TRACKS_PER_TRANSFER) -> list[str]:
+    """將超過 max_tracks 的 CSV 分割為多個批次檔案。
+
+    若曲目數未超過上限，直接回傳原始路徑。
+    分割檔案命名為 {原名}_batch1.csv、_batch2.csv …，結束後由呼叫端清理。
+    """
+    src = Path(csv_path)
+    with src.open(encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        rows = list(reader)
+
+    if len(rows) <= max_tracks:
+        return [csv_path]
+
+    batch_paths: list[str] = []
+    for i in range(0, len(rows), max_tracks):
+        batch_num = i // max_tracks + 1
+        batch_path = src.with_name(f"{src.stem}_batch{batch_num}{src.suffix}")
+        with batch_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerows(rows[i : i + max_tracks])
+        batch_paths.append(str(batch_path))
+        logger.info(
+            f"批次 {batch_num}：{len(rows[i : i + max_tracks])} 首（共 {len(rows)} 首）"
+        )
+
+    return batch_paths
+
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +417,18 @@ def _wait_for_popup_auth(driver: webdriver.Chrome, main_window: str) -> bool:
 
     if popup_handle is None:
         logger.info("未偵測到彈窗，可能已有快取的授權 session")
+        try:
+            music_token = driver.execute_script(
+                "try { return localStorage.getItem('music.ampwebplay.token') "
+                "|| localStorage.getItem('mk-token') "
+                "|| document.cookie.includes('media-user-token') "
+                "? 'present' : 'absent'; } catch(e) { return 'error: ' + e.message; }"
+            )
+            logger.info(f"Apple Music auth token 狀態：{music_token}")
+            if music_token and "absent" in str(music_token):
+                logger.warning("未偵測到 Apple Music token，快取授權可能已失效")
+        except Exception as e:
+            logger.warning(f"無法檢查 auth token 狀態：{e}")
         return True
 
     # 2. 切換至彈窗以記錄狀態（供除錯用）
@@ -590,12 +638,82 @@ def _wait_for_transfer_completion(driver: webdriver.Chrome) -> bool:
     return False
 
 
+def _run_transfer_batch(
+    driver: webdriver.Chrome,
+    batch_csv: str,
+    playlist_name: str | None,
+    is_first_batch: bool,
+) -> bool:
+    """執行單次 TuneMyMusic 轉移流程（導航 → 上傳 → 授權 → 轉移）。
+
+    is_first_batch 為 True 時會嘗試連接 Apple ID 並刪除同名現有歌單；
+    後續批次跳過這些步驟，直接利用快取的授權。
+    """
+    logger.info(f"正在開啟 {TUNEMYMUSIC_URL}")
+    driver.get(TUNEMYMUSIC_URL)
+    time.sleep(2)
+
+    if "/transfer" not in driver.current_url:
+        logger.info("導航至轉移入口頁面...")
+        driver.get(f"{TUNEMYMUSIC_URL}transfer")
+        try:
+            WebDriverWait(driver, 10).until(lambda d: "/transfer" in d.current_url)
+            logger.info(f"已導航至 {driver.current_url}")
+        except TimeoutException:
+            logger.warning("等待 /transfer 重導向逾時，繼續嘗試")
+
+    dismiss_cookie_consent(driver)
+    time.sleep(1)
+
+    if not _select_upload_source(driver):
+        return False
+    time.sleep(3)
+
+    if not _upload_file(driver, batch_csv):
+        return False
+    time.sleep(10)
+
+    for step in range(5):
+        if _click_continue_button(driver):
+            logger.info(f"已通過中間步驟（第 {step + 1} 次）")
+            time.sleep(10)
+        else:
+            break
+
+    if playlist_name:
+        _set_playlist_name(driver, playlist_name)
+        time.sleep(1)
+
+    if not _select_apple_music(driver):
+        return False
+    time.sleep(2)
+
+    if is_first_batch:
+        if not _click_connect_button(driver):
+            logger.warning("未找到 Connect 按鈕，嘗試繼續流程...")
+        time.sleep(3)
+
+    if not _wait_for_auth_completion(driver):
+        return False
+
+    if is_first_batch and playlist_name:
+        delete_existing_playlist(driver, playlist_name)
+        time.sleep(2)
+
+    if not _start_transfer(driver):
+        logger.warning("未找到 Start Transfer 按鈕，轉移可能已自動開始")
+
+    return _wait_for_transfer_completion(driver)
+
+
 def import_to_apple_music(
     csv_path: str,
     keep_browser_open: bool = False,
     playlist_name: str | None = None,
 ) -> bool:
     """將 CSV 檔案透過 TuneMyMusic 匯入 Apple Music。
+
+    若 CSV 超過 500 首（TuneMyMusic 免費上限），自動分批傳輸。
 
     Args:
         csv_path: CSV 檔案的絕對路徑
@@ -611,101 +729,68 @@ def import_to_apple_music(
         logger.error(f"CSV 檔案不存在：{csv_path}")
         return False
 
+    batch_paths = _split_csv(csv_path)
+    total_batches = len(batch_paths)
+    if total_batches > 1:
+        logger.info(
+            f"CSV 超過 {MAX_TRACKS_PER_TRANSFER} 首，分為 {total_batches} 批次傳輸"
+        )
+
     print("\n  正在啟動瀏覽器...")
     driver = create_driver()
 
     try:
-        # 1. 開啟 TuneMyMusic
-        logger.info(f"正在開啟 {TUNEMYMUSIC_URL}")
-        driver.get(TUNEMYMUSIC_URL)
-        time.sleep(2)
+        all_ok = True
+        for batch_idx, batch_csv in enumerate(batch_paths):
+            is_first = batch_idx == 0
+            batch_label = (
+                f"[{batch_idx + 1}/{total_batches}] " if total_batches > 1 else ""
+            )
 
-        # 1.1 確認頁面載入正確的入口
-        if "/transfer" not in driver.current_url:
-            logger.info("導航至轉移入口頁面...")
-            driver.get(f"{TUNEMYMUSIC_URL}transfer")
-            try:
-                WebDriverWait(driver, 10).until(lambda d: "/transfer" in d.current_url)
-                logger.info(f"已導航至 {driver.current_url}")
-            except TimeoutException:
-                logger.warning("等待 /transfer 重導向逾時，繼續嘗試")
+            logger.info(f"{batch_label}開始傳輸批次")
+            batch_ok = _run_transfer_batch(driver, batch_csv, playlist_name, is_first)
 
-        # 1.5 關閉 cookie 同意彈窗（若存在）
-        dismiss_cookie_consent(driver)
-        time.sleep(1)
-
-        # 2. 選擇「上傳檔案」作為來源
-        if not _select_upload_source(driver):
-            return False
-        time.sleep(3)
-
-        # 3. 上傳 CSV 檔案
-        if not _upload_file(driver, csv_path):
-            return False
-        time.sleep(10)
-
-        # 4. 點擊「繼續」通過中間步驟
-        for step in range(5):
-            if _click_continue_button(driver):
-                logger.info(f"已通過中間步驟（第 {step + 1} 次）")
-                time.sleep(10)
+            if batch_ok:
+                logger.info(f"{batch_label}匯入完成")
             else:
+                logger.warning(f"{batch_label}轉移未確認完成")
+                all_ok = False
                 break
 
-        # 4.5 設定播放清單名稱（在選擇目標之前）
-        if playlist_name:
-            _set_playlist_name(driver, playlist_name)
-            time.sleep(1)
+            if batch_idx < total_batches - 1:
+                logger.info(f"{batch_label}等待後繼續下一批次...")
+                time.sleep(5)
 
-        # 5. 選擇 Apple Music 作為目標
-        if not _select_apple_music(driver):
-            return False
-        time.sleep(2)
-
-        # 6. 點擊「連接」並等待 Apple ID 授權
-        if not _click_connect_button(driver):
-            logger.warning("未找到 Connect 按鈕，嘗試繼續流程...")
-        time.sleep(3)
-
-        # 7. 等待授權完成
-        if not _wait_for_auth_completion(driver):
-            return False
-
-        # 7.5 刪除同名的現有 Apple Music 播放清單（避免重複）
-        if playlist_name:
-            delete_existing_playlist(driver, playlist_name)
-            time.sleep(2)
-
-        # 8. 開始轉移
-        if not _start_transfer(driver):
-            logger.warning("未找到 Start Transfer 按鈕，轉移可能已自動開始")
-
-        # 9. 等待轉移完成
-        if _wait_for_transfer_completion(driver):
+        if all_ok:
             print("\n  匯入完成！請至 Apple Music 確認播放清單。")
-            logger.info("匯入成功")
+            logger.info("全部批次匯入成功")
         else:
-            print("\n  轉移可能仍在進行中，請在瀏覽器中確認。")
+            print("\n  轉移可能仍在進行中或失敗，請在瀏覽器中確認。")
+            logger.warning("轉移未確認完成，跳過後續改名與去重步驟")
 
-        # 9.5 改名播放清單
-        if playlist_name:
+        if all_ok and playlist_name:
             time.sleep(2)
             rename_playlist(driver, playlist_name, csv_path)
 
-        # 10. 清理重複的同名播放清單
-        if playlist_name:
+        if all_ok and playlist_name:
             time.sleep(2)
             deduplicate_playlists(driver, playlist_name)
 
         time.sleep(3)
 
-        return True
+        return all_ok
 
     except Exception as e:
         logger.error(f"匯入失敗：{e}")
         return False
 
     finally:
+        for p in batch_paths:
+            if p != csv_path:
+                try:
+                    Path(p).unlink()
+                except OSError:
+                    pass
         if not keep_browser_open:
             driver.quit()
             logger.info("瀏覽器已關閉")

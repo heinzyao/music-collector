@@ -204,6 +204,14 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     apple_music_status = None
     if sync_apple_music:
         try:
+            # 確保季度歸檔已執行（降低主歌單曲目數，避免超過 TuneMyMusic 免費上限）
+            try:
+                sp_am = get_spotify_client()
+                pid_am = get_or_create_playlist(sp_am)
+                archive_previous_quarters(sp_am, pid_am)
+            except Exception as e:
+                logger.warning(f"Apple Music 同步前歸檔失敗：{e}")
+
             logger.info("開始 Apple Music 同步流程...")
             csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
 
