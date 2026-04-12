@@ -113,7 +113,8 @@ def _upload_file(driver: webdriver.Chrome, csv_path: str) -> bool:
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='file']"))
             )
 
-        # 確保 input 可互動（移除所有隱藏屬性與限制）
+        # react-dropzone 使用 clip-path: inset(50%) 隱藏 input，
+        # 需同時清除 clip/clip-path 才能讓 Selenium 4 的互動檢查通過
         driver.execute_script(
             "var el = arguments[0];"
             "el.style.display = 'block';"
@@ -125,8 +126,13 @@ def _upload_file(driver: webdriver.Chrome, csv_path: str) -> bool:
             "el.style.top = '0';"
             "el.style.left = '0';"
             "el.style.zIndex = '99999';"
+            "el.style.clip = 'auto';"
+            "el.style.clipPath = 'none';"
+            "el.style.overflow = 'visible';"
+            "el.style.whiteSpace = 'normal';"
             "el.removeAttribute('hidden');"
             "el.removeAttribute('aria-hidden');"
+            "el.removeAttribute('tabindex');"
             "el.className = '';",
             file_input,
         )
@@ -295,21 +301,14 @@ def _set_playlist_name(driver: webdriver.Chrome, name: str) -> None:
 
 
 def _select_upload_source(driver: webdriver.Chrome) -> bool:
-    """選擇「上傳檔案」作為來源。"""
-    selectors = [
-        "button[name='FromFile']",  # ← 最穩定，不受語系影響
-        "button[title='Upload file']",  # 英文 locale
-        "button[title='上傳文件']",  # 中文 locale
-        "button[aria-label='Upload file']",  # 英文 locale
-        "button[aria-label='上傳文件']",  # 中文 locale
-        "//button[contains(@title, 'Upload')]",
-        "//button[contains(@title, '上傳')]",
-        "//button[contains(@aria-label, 'Upload')]",
-        "//button[contains(@aria-label, '上傳')]",
-        "[data-testid='source-FromFile']",
-        "[data-testid='FromFile']",
-    ]
+    """選擇「上傳檔案」作為來源。
 
+    TuneMyMusic SPA 的 Step 1 顯示來源選擇磁貼，
+    button[name='FromFile'] 是最穩定的 selector（不受語系影響）。
+
+    注意：cookie consent overlay 可能攔截點擊，
+    需使用 JS click 作為後備以繞過 ElementClickInterceptedException。
+    """
     # 等待 React SPA 實際渲染來源選擇按鈕
     logger.info("等待來源選擇頁面載入...")
     try:
@@ -318,22 +317,55 @@ def _select_upload_source(driver: webdriver.Chrome) -> bool:
         )
         logger.info("來源選擇頁面已就緒")
     except TimeoutException:
-        logger.warning("等待 button[name='FromFile'] 逾時，仍嘗試後備 selectors")
+        logger.warning("等待 button[name='FromFile'] 逾時，仍嘗試後備方式")
 
-    # 先滾動頁面至頂端以確保按鈕可見
     driver.execute_script("window.scrollTo(0, 0)")
     time.sleep(0.5)
 
-    for selector in selectors:
+    # 優先使用 name attribute（最穩定），先嘗試原生點擊再用 JS 點擊
+    css_selectors = [
+        "button[name='FromFile']",
+        "button[title='Upload file']",
+        "button[title='上傳文件']",
+        "button[aria-label='Upload file']",
+        "button[aria-label='上傳文件']",
+    ]
+    xpath_selectors = [
+        "//button[contains(@title, 'Upload')]",
+        "//button[contains(@title, '上傳')]",
+        "//button[contains(@aria-label, 'Upload')]",
+        "//button[contains(@aria-label, '上傳')]",
+    ]
+
+    # 第一輪：原生 Selenium 點擊
+    for selector in css_selectors + xpath_selectors:
         try:
             by = By.XPATH if selector.startswith("//") else By.CSS_SELECTOR
-            element = WebDriverWait(driver, 10).until(
+            element = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable((by, selector))
             )
             element.click()
             logger.info(f"已選擇「上傳檔案」（selector: {selector}）")
             return True
         except TimeoutException:
+            continue
+        except Exception:
+            # ElementClickInterceptedException 等——改用 JS 點擊
+            continue
+
+    # 第二輪：JS 點擊（繞過 overlay 攔截）
+    for selector in css_selectors:
+        try:
+            clicked = driver.execute_script(
+                "var el = document.querySelector(arguments[0]);"
+                "if (el) { el.click(); return true; }"
+                "return false;",
+                selector,
+            )
+            if clicked:
+                logger.info(f"已透過 JS 選擇「上傳檔案」（selector: {selector}）")
+                return True
+        except Exception:
             continue
 
     logger.error(f"找不到「上傳檔案」按鈕，當前 URL: {driver.current_url}")
@@ -667,7 +699,7 @@ def _run_transfer_batch(
 
     if not _select_upload_source(driver):
         return False
-    time.sleep(3)
+    time.sleep(5)
 
     if not _upload_file(driver, batch_csv):
         return False

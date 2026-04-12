@@ -73,7 +73,7 @@ docker compose run collector --dry-run
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
-- `src/music_collector/export.py` — 匯出為 CSV/TXT（`export_from_spotify()` 直接從 Spotify API 讀取官方元資料；舊函式 `export_csv()`/`export_playlist()` 從備份 JSON 讀取）+ Spotify URL 匯出
+- `src/music_collector/export.py` — 匯出為 CSV/TXT（`export_combined_spotify()` 合併主歌單 + 歸檔歌單並去重匯出，供 `--apple-music` 使用；`export_from_spotify()` 僅匯出主歌單；舊函式 `export_csv()`/`export_playlist()` 從備份 JSON 讀取）+ Spotify URL 匯出
 - `src/music_collector/apple_music/` — Apple Music 自動匯入（模組化套件）
   - `browser.py` — Chrome driver 建立與反偵測措施
   - `playlist.py` — 播放清單管理（MusicKit JS API + AppleScript）
@@ -214,7 +214,7 @@ launchctl start com.music-collector
 ```
 1. 擷取新曲目（13 個來源）
 2. Spotify 更新（僅有新曲目時）：搜尋 → 加入歌單 → 備份
-3. Apple Music 匯入（無論是否有新曲目都執行）：從 Spotify API 匯出 CSV（官方元資料） → TuneMyMusic 轉移
+3. Apple Music 匯入（無論是否有新曲目都執行）：從 Spotify API 合併匯出 CSV（主歌單 + 歸檔歌單，去重後全量匯出） → TuneMyMusic 轉移
 4. 發送通知
 ```
 

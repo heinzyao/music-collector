@@ -202,6 +202,9 @@ def dismiss_cookie_consent(driver: webdriver.Chrome) -> None:
     此函式靜默處理——找不到彈窗不視為錯誤。
     """
     consent_selectors = [
+        # TuneMyMusic 特定 cookie consent 按鈕（class 含 CookieConsent）
+        "[class*='CookieConsent'] button",
+        "[class*='CookieAlert']",
         # 常見 cookie consent 按鈕 selector
         "//button[normalize-space(text())='OK']",
         "//button[normalize-space(text())='Accept']",
@@ -212,6 +215,7 @@ def dismiss_cookie_consent(driver: webdriver.Chrome) -> None:
         "//button[normalize-space(text())='Agree']",
         "//button[contains(@class, 'consent')]",
         "//button[contains(@class, 'cookie')]",
+        "//button[contains(@class, 'Cookie')]",
         "//a[normalize-space(text())='OK']",
         "//a[normalize-space(text())='Accept']",
         # CMP (Consent Management Platform) 常見 selector

@@ -204,7 +204,7 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     if sync_apple_music:
         try:
             logger.info("開始 Apple Music 同步流程...")
-            csv_path = export_from_spotify(playlist_name=PLAYLIST_NAME)
+            csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
 
             if csv_path:
                 from .apple_music import import_to_apple_music
