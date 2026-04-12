@@ -510,16 +510,31 @@ def _wait_for_auth_completion(driver: webdriver.Chrome) -> bool:
     strict_indicators = [
         "//button[normalize-space(text())='Start Transfer']",
         "//button[normalize-space(text())='Start transfer']",
-        "//button[contains(normalize-space(text()), 'Start Transfer')]",
-        "//button[contains(normalize-space(text()), 'Start transfer')]",
+        # 排除 Premium 付費牆按鈕（如 "Go Premium And Start Transfer"）
+        "//button[contains(normalize-space(text()), 'Start Transfer') and not(contains(text(), 'Premium'))]",
+        "//button[contains(normalize-space(text()), 'Start transfer') and not(contains(text(), 'Premium'))]",
         "//button[normalize-space(text())='開始轉移']",
-        "//button[@name='stickyButton' and contains(text(), 'Start')]",
+        "//button[@name='stickyButton' and contains(text(), 'Start') and not(contains(text(), 'Premium'))]",
         "//button[@name='stickyButton' and contains(text(), '開始')]",
     ]
 
     start_time = time.time()
     post_auth_timeout = 60
     while time.time() - start_time < post_auth_timeout:
+        # 先檢查是否出現 Premium 付費牆
+        try:
+            premium_btn = driver.find_element(
+                By.XPATH,
+                "//button[contains(text(), 'Premium') and contains(text(), 'Transfer')]",
+            )
+            btn_text = premium_btn.text.strip() if premium_btn.text else ""
+            logger.error(
+                f"TuneMyMusic 需要 Premium 方案才能轉移至 Apple Music（按鈕：{btn_text}）"
+            )
+            return False
+        except NoSuchElementException:
+            pass
+
         for selector in strict_indicators:
             try:
                 element = driver.find_element(By.XPATH, selector)
@@ -557,10 +572,11 @@ def _wait_for_auth_completion(driver: webdriver.Chrome) -> bool:
 def _start_transfer(driver: webdriver.Chrome) -> bool:
     """開始轉移。"""
     selectors = [
-        "//button[contains(normalize-space(text()), 'Start Transfer')]",
-        "//button[contains(normalize-space(text()), 'Start transfer')]",
+        # 排除 Premium 付費牆按鈕（如 "Go Premium And Start Transfer"）
+        "//button[contains(normalize-space(text()), 'Start Transfer') and not(contains(text(), 'Premium'))]",
+        "//button[contains(normalize-space(text()), 'Start transfer') and not(contains(text(), 'Premium'))]",
         "//button[normalize-space(text())='開始轉移']",
-        "//button[@name='stickyButton' and contains(text(), 'Start')]",
+        "//button[@name='stickyButton' and contains(text(), 'Start') and not(contains(text(), 'Premium'))]",
         "//button[@name='stickyButton' and contains(text(), '開始')]",
     ]
 

@@ -13,13 +13,13 @@ Automatically collects "Best New Track" recommendations from major global music 
 The following workflow is executed automatically every day:
 
 ```text
-13 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Auto-export CSV → TuneMyMusic Automation → Apple Music Sync → LINE Notification
+13 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Auto-export CSV → Apple Music API Direct Import → LINE Notification
 ```
 
 #### Core Features
 
 - **Spotify Search Validation**: Dual verification combining artist name and track title to ensure that the added song corresponds with the original source.
-- **Apple Music Automatic Sync**: Automates the TuneMyMusic process via Selenium, smoothly integrating the new playlist into Apple Music.
+- **Apple Music Automatic Sync**: Directly calls the Apple Music REST API (MusicKit) to import playlists without relying on any third-party transfer service.
 - **Quarterly Archiving**: Automatically moves expired tracks out of the main playlist into an archived playlist (`Critics' Picks — YYYY QN`) per quarter.
 - **Browser State Retention**: Maintains Apple ID login session autonomously, ensuring the pipeline can be fully automated after the preliminary authorization.
 - **Multi-channel Notifications**: Sends execution summaries containing the sync results across the two major platforms via LINE, Telegram, and Slack.
@@ -173,9 +173,10 @@ music-collector/
 │       ├── web.py                  # Local frontend driven by Streamlit
 │       ├── apple_music/            # Integrates directly to Apple Music
 │       │   ├── __init__.py
+│       │   ├── api.py              # Direct Apple Music REST API import (primary)
 │       │   ├── browser.py          # Chrome Driver handler & Anti-bot stealth logic
 │       │   ├── playlist.py         # Extends AppleScript & MusicKit to create logic
-│       │   └── transfer.py         # Automate the visual TuneMyMusic GUI interaction
+│       │   └── transfer.py         # TuneMyMusic GUI automation (legacy fallback)
 │       ├── tunemymusic.py          # Bridging backward compatibility logic
 │       └── scrapers/
 │           ├── __init__.py         # Global Scraper Repository Array (13 Modules)
@@ -295,13 +296,13 @@ MIT License
 每日自動執行以下流程：
 
 ```text
-13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 自動匯出 CSV → TuneMyMusic 自動化 → Apple Music 同步 → LINE 通知
+13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 自動匯出 CSV → Apple Music API 直接匯入 → LINE 通知
 ```
 
 #### 核心功能
 
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
-- **Apple Music 自動同步**：透過 Selenium 自動化 TuneMyMusic 流程，將新歌單無縫接軌至 Apple Music
+- **Apple Music 自動同步**：直接呼叫 Apple Music REST API（MusicKit），不依賴任何第三方轉換服務，將歌單直接匯入 Apple Music
 - **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
 - **瀏覽器狀態保存**：自動記憶 Apple ID 登入狀態，除首次授權外，後續可全自動執行
 - **多通道通知**：LINE + Telegram + Slack 推送執行摘要，包含兩大平台同步結果
@@ -455,9 +456,10 @@ music-collector/
 │       ├── web.py                  # Streamlit Web 介面
 │       ├── apple_music/            # Apple Music 自動匯入（模組化）
 │       │   ├── __init__.py
+│       │   ├── api.py              # Apple Music REST API 直接匯入（主要）
 │       │   ├── browser.py          # Chrome driver 與反偵測
 │       │   ├── playlist.py         # 播放清單管理（MusicKit JS + AppleScript）
-│       │   └── transfer.py         # TuneMyMusic 自動化轉移
+│       │   └── transfer.py         # TuneMyMusic 自動化轉移（備援）
 │       ├── tunemymusic.py          # 向後相容（重新匯出 apple_music）
 │       └── scrapers/
 │           ├── __init__.py         # 擷取器註冊表（13 個）

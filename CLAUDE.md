@@ -36,7 +36,7 @@ uv sync --all-extras
 ./run.sh --backup Q1
 
 # 匯出備份供 Apple Music 匯入
-./run.sh --export Q1              # 匯出為 CSV（適用 TuneMyMusic）
+./run.sh --export Q1              # 匯出為 CSV
 ./run.sh --export Q1 --format txt # 匯出為純文字
 ./run.sh --export Q1 --all        # 包含未在 Spotify 找到的曲目
 
@@ -75,9 +75,10 @@ docker compose run collector --dry-run
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
 - `src/music_collector/export.py` — 匯出為 CSV/TXT（`export_combined_spotify()` 合併主歌單 + 歸檔歌單並去重匯出，供 `--apple-music` 使用；`export_from_spotify()` 僅匯出主歌單；舊函式 `export_csv()`/`export_playlist()` 從備份 JSON 讀取）+ Spotify URL 匯出
 - `src/music_collector/apple_music/` — Apple Music 自動匯入（模組化套件）
+  - `api.py` — **主要入口**：直接呼叫 Apple Music REST API（搜尋曲目、建立/刪除播放清單、分批加入曲目）
   - `browser.py` — Chrome driver 建立與反偵測措施
   - `playlist.py` — 播放清單管理（MusicKit JS API + AppleScript）
-  - `transfer.py` — TuneMyMusic 自動化轉移主流程
+  - `transfer.py` — TuneMyMusic 自動化轉移（備援方案，含 Premium 付費牆偵測修正）
 - `src/music_collector/tunemymusic.py` — 向後相容，重新匯出 `apple_music` 套件
 - `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
@@ -126,61 +127,53 @@ docker compose run collector --dry-run
 3. 行為：httpx 請求失敗時自動 fallback 至 Playwright headless 瀏覽器
 4. 未安裝/未啟用時靜默跳過，不影響其他來源
 
-## TuneMyMusic Apple Music 自動匯入
+## Apple Music 直接 API 匯入
 
-### 流程架構
+### 流程架構（`api.py`）
 
 ```
-匯出 CSV → Selenium 開啟 TuneMyMusic → 關閉 Cookie 同意 → 上傳 CSV → 欄位對應
-→ 選擇歌單 → 設定播放清單名稱 → 選擇 Apple Music → 連接
-→ Apple ID 彈窗授權 → 刪除同名舊播放清單 → 開始轉移 → 完成
-→ MusicKit JS API 改名播放清單（確保名稱與 Spotify 同步）
+讀取 CSV → Selenium 開啟 music.apple.com → 提取 MusicKit token
+→ 逐一搜尋 (artist, title) → 取得 catalog track ID
+→ 刪除同名舊歌單 → 建立新播放清單 → 分批 POST 加入曲目（每批 ≤300）
 ```
 
-所有步驟在同一 URL (`/transfer`) 上以 SPA 方式切換，共 4 個步驟（STEP 1/4 ~ 4/4）。
+- 不依賴任何第三方轉換服務，直接透過 `https://api.music.apple.com` 呼叫
+- Token 從 `MusicKit.getInstance().developerToken` / `.musicUserToken` 提取
+- 加入曲目使用 `POST /v1/me/library/playlists/{id}/tracks`，回傳 204 No Content 視為成功
 
-### Selector 策略
+### Token 取得
 
-TuneMyMusic 使用 Next.js + CSS Modules，class name 為 hash（如 `MusicServiceBlock-module-scss-module__7DOuaW__Block`），每次建置都會變更。因此：
+1. Selenium 開啟 `music.apple.com`，等待 MusicKit JS 初始化（約 5–10 秒）
+2. 若已授權（`isAuthorized === true`），直接讀取 `developerToken` + `musicUserToken`
+3. 若未授權，JS 點擊 Sign In 按鈕（Svelte class `button.signin`），等待 Apple ID 登入彈窗關閉，輪詢 token 寫入
 
-- **使用 `name` 屬性**（穩定、不受語系與 CSS 模組影響）：
-  - `button[name='FromFile']` — 選擇上傳來源
-  - `button[name='Apple']` — 選擇 Apple Music 目標
-  - `button[name='stickyButton']` — Continue / Choose Destination（各步驟共用）
-- **避免 CSS class selector** — 所有 class 皆為 CSS module hash
-- **XPath fallback** 限定為 `//button[...]` 而非 `//*[...]`，避免匹配無關元素
+### 搜尋策略
 
-### Apple ID 授權流程
-
-1. 點擊 Connect → MusicKit JS 發起 OAuth
-2. 瀏覽器開啟新視窗至 `idmsa.apple.com` 供使用者登入
-3. 使用者完成登入 → 彈窗自動關閉
-4. 主頁面收到授權 token → 進入轉移步驟
-
-程式碼透過 `window_handles` 偵測彈窗、等待關閉、切回主視窗。
-
-### 播放清單名稱與去重
-
-- **名稱設定（雙重保障）**：
-  - **UI 層**（best-effort）：`_set_playlist_name()` 在「Choose Destination」步驟前嘗試找到可編輯欄位修改名稱，但 TuneMyMusic UI 經常變動，可能失敗
-  - **API 層**（可靠）：`_rename_apple_music_playlist()` 在轉移完成後透過 MusicKit JS API（`PATCH /v1/me/library/playlists/{id}`）將播放清單改名為 `PLAYLIST_NAME`，搜尋候選名稱 "My playlist"/"My Playkist"（TuneMyMusic 預設）或 CSV 檔名
-- **去重策略**：TuneMyMusic 每次轉移必定建立新播放清單，`_delete_existing_apple_music_playlist()` 在授權完成後、開始轉移前，先嘗試 MusicKit JS API 刪除同名舊播放清單，若 API 不可用則 fallback 至 Music.app (osascript) 刪除
-- `import_to_apple_music()` 接受 `playlist_name` 參數，由 `main.py` 傳入 `PLAYLIST_NAME`
+- 兩輪查詢：`"{title} {artist}"` 及 `"{artist} {title}"`
+- 藝人 + 曲名雙重驗證（`_is_match` 子字串包含）
+- 間隔 0.15 秒避免 rate limit
 
 ### 反偵測措施
 
-MusicKit JS 會偵測無痕模式（透過 IndexedDB quota、Service Worker、storage API）。`_create_driver()` 中的防護：
+MusicKit JS 會偵測無痕模式。`browser.py` 中的防護：
 
-- `Page.addScriptToEvaluateOnNewDocument` 注入反偵測腳本（每個頁面載入都生效）
-- `navigator.storage.estimate` quota 偽裝（無痕模式 < 120MB → 偽裝為 4GB）
-- 第三方 cookie 允許（Apple OAuth 需要）
-- 持久化 `user-data-dir` 保存登入狀態
+- `Page.addScriptToEvaluateOnNewDocument` 注入反偵測腳本
+- `navigator.storage.estimate` quota 偽裝
+- 持久化 `data/browser_profile/` 保存登入狀態（不可推送至 Git）
 
 ### 已知限制
 
-- 首次使用需手動在 Apple ID 彈窗完成登入（約 30 秒）
-- 後續執行若 session 仍有效則可全自動
+- 首次使用需手動完成 Apple ID 登入（約 30 秒）
+- Apple Music API 每次 POST 最多加入 300 首，超過需分批
 - `data/browser_profile/` 儲存 Chrome profile（不可推送至 Git）
+
+## TuneMyMusic 備援方案（`transfer.py`）
+
+`transfer.py` 保留作為備援，使用 Selenium 自動化 TuneMyMusic UI。注意：
+
+- TuneMyMusic 免費方案需要 Premium 才能轉移至 Apple Music
+- Premium 付費牆偵測：`//button[contains(text(), 'Premium') and contains(text(), 'Transfer')]`
+- `import_to_apple_music()` 目前由 `api.py` 提供（`__init__.py` 匯入 `api.py`）
 
 ## 自動排程（launchd）
 
@@ -214,7 +207,7 @@ launchctl start com.music-collector
 ```
 1. 擷取新曲目（13 個來源）
 2. Spotify 更新（僅有新曲目時）：搜尋 → 加入歌單 → 備份
-3. Apple Music 匯入（無論是否有新曲目都執行）：從 Spotify API 合併匯出 CSV（主歌單 + 歸檔歌單，去重後全量匯出） → TuneMyMusic 轉移
+3. Apple Music 匯入（無論是否有新曲目都執行）：從 Spotify API 合併匯出 CSV（主歌單 + 歸檔歌單，去重後全量匯出） → Apple Music REST API 直接匯入
 4. 發送通知
 ```
 
