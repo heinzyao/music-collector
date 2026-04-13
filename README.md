@@ -21,7 +21,7 @@ The following workflow is executed automatically every day:
 - **Spotify Search Validation**: Dual verification combining artist name and track title to ensure that the added song corresponds with the original source.
 - **Apple Music Automatic Sync**: Directly calls the Apple Music REST API (MusicKit) to import playlists without relying on any third-party transfer service.
 - **Quarterly Archiving**: Automatically moves expired tracks out of the main playlist into an archived playlist (`Critics' Picks — YYYY QN`) per quarter.
-- **Browser State Retention**: Maintains Apple ID login session autonomously, ensuring the pipeline can be fully automated after the preliminary authorization.
+- **Browser State Retention**: Reuses the saved Apple ID browser session when available. If Apple Music requires re-authentication in a non-interactive environment, the sync is skipped immediately with a clear warning instead of blocking the schedule.
 - **Multi-channel Notifications**: Sends execution summaries containing the sync results across the two major platforms via LINE, Telegram, and Slack.
 - **Local Backup**: Retains quarterly backup copies of all track metadata under a `data/backups/YYYY/QN.json` structure.
 - **Multi-platform Export**: Generates Spotify URLs capable of being imported into TuneMyMusic or Soundiiz to be mapped into YouTube Music, Tidal, etc.
@@ -122,7 +122,7 @@ PYTHONPATH=src uv run python auth.py
 # Erase the timeline and the database to restart syncing
 ./run.sh --reset
 
-# Cron routine: Fetch newly matched tracks and push directly to Apple Music
+# Manual Apple Music sync: use this when you're present to complete Apple login if needed
 ./run.sh --apple-music
 ```
 
@@ -233,6 +233,8 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 
 This binds an automatic timer executing around 09:00 locally every day. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
 
+The scheduled LaunchAgent intentionally runs the **crawler + Spotify pipeline only**. Apple Music sync remains a manual command because Apple may require an interactive sign-in at any time. If `--apple-music` is run from a non-interactive environment and the saved Apple session is no longer valid, the program now skips Apple Music sync immediately with a clear warning instead of waiting for the login timeout.
+
 #### crontab Option
 
 ```bash
@@ -304,7 +306,7 @@ MIT License
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
 - **Apple Music 自動同步**：直接呼叫 Apple Music REST API（MusicKit），不依賴任何第三方轉換服務，將歌單直接匯入 Apple Music
 - **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
-- **瀏覽器狀態保存**：自動記憶 Apple ID 登入狀態，除首次授權外，後續可全自動執行
+- **瀏覽器狀態保存**：會重用已儲存的 Apple ID 瀏覽器 session；若 Apple Music 在非互動環境中要求重新登入，程式會立即略過同步並記錄明確警告，不再卡住整個排程
 - **多通道通知**：LINE + Telegram + Slack 推送執行摘要，包含兩大平台同步結果
 - **本地備份**：以 `data/backups/YYYY/QN.json` 季度結構備份所有曲目紀錄
 - **多平台匯出**：Spotify URL 匯出，供 TuneMyMusic/Soundiiz 轉換至 YouTube Music、Tidal 等
@@ -405,7 +407,7 @@ PYTHONPATH=src uv run python auth.py
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset
 
-# 排程專用：蒐集後自動同步 Apple Music（由 launchd 觸發）
+# 手動 Apple Music 同步：當你人在電腦前、可視需要完成 Apple 登入時使用
 ./run.sh --apple-music
 ```
 
@@ -515,6 +517,8 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 ```
 
 預設每日 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
+
+目前 LaunchAgent 刻意只執行 **爬蟲 + Spotify 流程**，不會自動觸發 Apple Music 同步。原因是 Apple 可能隨時要求互動式重新登入；若在非互動環境中執行 `--apple-music` 且既有 session 已失效，程式現在會立即略過 Apple Music 同步並輸出明確警告，而不是等待登入逾時。
 
 #### crontab 替代方案
 
