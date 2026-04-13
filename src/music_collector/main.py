@@ -202,13 +202,13 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     # Apple Music 自動匯入（無論是否有新曲目都執行，確保 Apple Music 與 Spotify 同步）
     apple_music_status = None
     if sync_apple_music:
+        from .apple_music import AppleMusicAuthRequiredError, import_to_apple_music
+
         try:
             logger.info("開始 Apple Music 同步流程...")
             csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
 
             if csv_path:
-                from .apple_music import import_to_apple_music
-
                 track_count = _count_csv_tracks(csv_path)
                 success = import_to_apple_music(
                     str(csv_path), playlist_name=PLAYLIST_NAME
@@ -229,6 +229,13 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
                     send_apple_music_notification(success=False, error="匯出 CSV 失敗")
                 except Exception as e:
                     logger.warning(f"Apple Music 通知失敗：{e}")
+        except AppleMusicAuthRequiredError as e:
+            logger.warning(str(e))
+            apple_music_status = f"略過同步（{e}）"
+            try:
+                send_apple_music_notification(success=False, error=str(e))
+            except Exception as ne:
+                logger.warning(f"Apple Music 通知失敗：{ne}")
         except Exception as e:
             logger.error(f"Apple Music 同步發生錯誤：{e}")
             apple_music_status = f"發生錯誤 ({e})"
