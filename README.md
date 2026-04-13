@@ -127,6 +127,9 @@ PYTHONPATH=src uv run python auth.py
 
 # Recommended manual recovery shortcut for Apple Music re-auth / re-sync
 ./sync-apple-music.sh
+
+# Double-clickable launcher for Finder / Desktop use
+./sync-apple-music.command
 ```
 
 > Note: Using `run.sh` acts simply as a macro to `PYTHONPATH=src uv run python -m music_collector`.
@@ -239,6 +242,10 @@ This binds an automatic timer executing around 09:00 locally every day. This tri
 The scheduled LaunchAgent intentionally runs the **crawler + Spotify pipeline only**. Apple Music sync remains a manual command because Apple may require an interactive sign-in at any time. If `--apple-music` is run from a non-interactive environment and the saved Apple session is no longer valid, the program now skips Apple Music sync immediately with a clear warning instead of waiting for the login timeout.
 
 When that happens, use `./sync-apple-music.sh` from a terminal session so you can complete Apple login and immediately rerun the sync.
+
+Additional manual recovery tools:
+- `./sync-apple-music.command`: double-clickable Finder launcher
+- `com.music-collector.apple-music-manual.plist`: optional per-user LaunchAgent you can start manually with `launchctl start com.music-collector.apple-music-manual`
 
 #### crontab Option
 
@@ -417,6 +424,9 @@ PYTHONPATH=src uv run python auth.py
 
 # 建議的 Apple Music 補跑捷徑：重新授權或手動重試時使用
 ./sync-apple-music.sh
+
+# 可雙擊的 Finder / Desktop 啟動器
+./sync-apple-music.command
 ```
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`，可直接傳遞所有參數。
@@ -529,6 +539,10 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 目前 LaunchAgent 刻意只執行 **爬蟲 + Spotify 流程**，不會自動觸發 Apple Music 同步。原因是 Apple 可能隨時要求互動式重新登入；若在非互動環境中執行 `--apple-music` 且既有 session 已失效，程式現在會立即略過 Apple Music 同步並輸出明確警告，而不是等待登入逾時。
 
 若遇到這種情況，請直接在終端執行 `./sync-apple-music.sh`，完成 Apple 登入後即可立刻補跑同步。
+
+另外也提供兩個手動補跑入口：
+- `./sync-apple-music.command`：可從 Finder 直接雙擊執行
+- `com.music-collector.apple-music-manual.plist`：可安裝成使用者 LaunchAgent，並用 `launchctl start com.music-collector.apple-music-manual` 手動觸發
 
 #### crontab 替代方案
 
