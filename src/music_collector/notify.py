@@ -229,8 +229,19 @@ def _build_apple_music_message(
             msg += f"\n曲目數量：{track_count} 首"
         msg += "\n\n請至 Apple Music 確認播放清單。"
     else:
-        msg = "🍎 Apple Music 匯入失敗\n"
-        if error:
-            msg += f"\n原因：{error}"
-        msg += "\n\n請檢查日誌或手動匯入。"
+        is_auth_required = bool(error and "非互動環境" in error)
+
+        if is_auth_required:
+            msg = "🍎 Apple Music 已略過\n"
+            if playlist_name:
+                msg += f"\n播放清單：{playlist_name}"
+            msg += "\n原因：Apple Music 需要重新登入，目前排程不支援互動式登入。"
+            msg += "\n\n建議處理方式："
+            msg += "\n1. 在終端手動執行 ./sync-apple-music.sh"
+            msg += "\n2. 完成 Apple 登入後再重試"
+        else:
+            msg = "🍎 Apple Music 匯入失敗\n"
+            if error:
+                msg += f"\n原因：{error}"
+            msg += "\n\n請檢查日誌或手動匯入。"
     return msg
