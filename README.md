@@ -124,6 +124,9 @@ PYTHONPATH=src uv run python auth.py
 
 # Manual Apple Music sync: use this when you're present to complete Apple login if needed
 ./run.sh --apple-music
+
+# Recommended manual recovery shortcut for Apple Music re-auth / re-sync
+./sync-apple-music.sh
 ```
 
 > Note: Using `run.sh` acts simply as a macro to `PYTHONPATH=src uv run python -m music_collector`.
@@ -234,6 +237,8 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 This binds an automatic timer executing around 09:00 locally every day. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
 
 The scheduled LaunchAgent intentionally runs the **crawler + Spotify pipeline only**. Apple Music sync remains a manual command because Apple may require an interactive sign-in at any time. If `--apple-music` is run from a non-interactive environment and the saved Apple session is no longer valid, the program now skips Apple Music sync immediately with a clear warning instead of waiting for the login timeout.
+
+When that happens, use `./sync-apple-music.sh` from a terminal session so you can complete Apple login and immediately rerun the sync.
 
 #### crontab Option
 
@@ -409,6 +414,9 @@ PYTHONPATH=src uv run python auth.py
 
 # 手動 Apple Music 同步：當你人在電腦前、可視需要完成 Apple 登入時使用
 ./run.sh --apple-music
+
+# 建議的 Apple Music 補跑捷徑：重新授權或手動重試時使用
+./sync-apple-music.sh
 ```
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`，可直接傳遞所有參數。
@@ -519,6 +527,8 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 預設每日 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
 
 目前 LaunchAgent 刻意只執行 **爬蟲 + Spotify 流程**，不會自動觸發 Apple Music 同步。原因是 Apple 可能隨時要求互動式重新登入；若在非互動環境中執行 `--apple-music` 且既有 session 已失效，程式現在會立即略過 Apple Music 同步並輸出明確警告，而不是等待登入逾時。
+
+若遇到這種情況，請直接在終端執行 `./sync-apple-music.sh`，完成 Apple 登入後即可立刻補跑同步。
 
 #### crontab 替代方案
 
