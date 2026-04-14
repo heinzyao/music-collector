@@ -128,6 +128,18 @@ PYTHONPATH=src uv run python auth.py
 # Recommended manual recovery shortcut for Apple Music re-auth / re-sync
 ./sync-apple-music.sh
 
+# Bootstrap Apple login in a normal Chrome window first if session expired
+./bootstrap-apple-music-login.sh
+
+# Guided recovery: open normal Chrome login, verify the shared session, then continue to sync
+./recover-apple-music-sync.sh
+
+# Double-clickable bootstrap launcher for Finder / Desktop use
+./bootstrap-apple-music-login.command
+
+# Double-clickable guided recovery launcher
+./recover-apple-music-sync.command
+
 # Double-clickable launcher for Finder / Desktop use
 ./sync-apple-music.command
 ```
@@ -241,9 +253,11 @@ This binds an automatic timer executing around 09:00 locally every day. This tri
 
 The scheduled LaunchAgent intentionally runs the **crawler + Spotify pipeline only**. Apple Music sync remains a manual command because Apple may require an interactive sign-in at any time. If `--apple-music` is run from a non-interactive environment and the saved Apple session is no longer valid, the program now skips Apple Music sync immediately with a clear warning instead of waiting for the login timeout.
 
-When that happens, use `./sync-apple-music.sh` from a terminal session so you can complete Apple login and immediately rerun the sync.
+When that happens, first use `./bootstrap-apple-music-login.sh` to sign in through a normal Chrome window with the shared browser profile, then run `./sync-apple-music.sh` to reuse that session for the automated sync.
 
 Additional manual recovery tools:
+- `./recover-apple-music-sync.command`: guided recovery launcher with pre-sync session validation
+- `./bootstrap-apple-music-login.command`: double-clickable login bootstrap launcher
 - `./sync-apple-music.command`: double-clickable Finder launcher
 - `com.music-collector.apple-music-manual.plist`: optional per-user LaunchAgent you can start manually with `launchctl start com.music-collector.apple-music-manual`
 
@@ -425,6 +439,18 @@ PYTHONPATH=src uv run python auth.py
 # 建議的 Apple Music 補跑捷徑：重新授權或手動重試時使用
 ./sync-apple-music.sh
 
+# 若 session 過期，先用一般 Chrome 視窗完成 Apple 登入
+./bootstrap-apple-music-login.sh
+
+# 引導式兩段恢復：先登入，驗證 session 後再按 Enter 接續同步
+./recover-apple-music-sync.sh
+
+# 可雙擊的登入初始化啟動器
+./bootstrap-apple-music-login.command
+
+# 可雙擊的引導式恢復啟動器
+./recover-apple-music-sync.command
+
 # 可雙擊的 Finder / Desktop 啟動器
 ./sync-apple-music.command
 ```
@@ -538,9 +564,11 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 
 目前 LaunchAgent 刻意只執行 **爬蟲 + Spotify 流程**，不會自動觸發 Apple Music 同步。原因是 Apple 可能隨時要求互動式重新登入；若在非互動環境中執行 `--apple-music` 且既有 session 已失效，程式現在會立即略過 Apple Music 同步並輸出明確警告，而不是等待登入逾時。
 
-若遇到這種情況，請直接在終端執行 `./sync-apple-music.sh`，完成 Apple 登入後即可立刻補跑同步。
+若遇到這種情況，請先在終端執行 `./bootstrap-apple-music-login.sh`，用一般 Chrome 視窗完成 Apple 登入；登入完成後再執行 `./sync-apple-music.sh` 補跑同步。
 
 另外也提供兩個手動補跑入口：
+- `./recover-apple-music-sync.command`：雙擊後會先開正常 Chrome 讓你登入，先驗證 session 可用，再接續同步
+- `./bootstrap-apple-music-login.command`：可從 Finder 直接雙擊，先開正常 Chrome 登入 Apple
 - `./sync-apple-music.command`：可從 Finder 直接雙擊執行
 - `com.music-collector.apple-music-manual.plist`：可安裝成使用者 LaunchAgent，並用 `launchctl start com.music-collector.apple-music-manual` 手動觸發
 

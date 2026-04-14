@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Henry/.local/bin/uv</string>
+        <string>/home/USERNAME/.local/bin/uv</string>
         <string>run</string>
         <string>python</string>
         <string>-m</string>
@@ -15,7 +15,7 @@
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Henry/Project/music-collector</string>
+    <string>/path/to/music-collector</string>
 
     <key>StartCalendarInterval</key>
     <dict>
@@ -26,9 +26,9 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/Henry/Project/music-collector/data/collector.log</string>
+    <string>/path/to/music-collector/data/collector.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Henry/Project/music-collector/data/collector.log</string>
+    <string>/path/to/music-collector/data/collector.log</string>
 
     <key>TimeOut</key>
     <integer>3600</integer>
@@ -36,9 +36,9 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/Users/Henry/.local/bin</string>
+        <string>/usr/local/bin:/usr/bin:/bin:/home/USERNAME/.local/bin</string>
         <key>PYTHONPATH</key>
-        <string>/Users/Henry/Project/music-collector/src</string>
+        <string>/path/to/music-collector/src</string>
     </dict>
 </dict>
 </plist>

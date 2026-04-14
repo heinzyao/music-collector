@@ -15,6 +15,7 @@
 import argparse
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
@@ -278,6 +279,32 @@ def show_recent(days: int = 7) -> None:
         print(f"  [{t['source']}] {t['artist']} — {t['title']} ({status})")
 
 
+def check_apple_music_session() -> bool:
+    """檢查目前 browser profile 是否已有可用的 Apple Music session。"""
+    from .apple_music.api import _EXTRACT_TOKENS_JS
+    from .apple_music.browser import create_driver
+
+    driver = create_driver()
+    try:
+        logger.info("檢查 Apple Music session 是否可用...")
+        driver.get("https://music.apple.com/")
+
+        for _ in range(20):
+            time.sleep(2)
+            try:
+                result = driver.execute_script(_EXTRACT_TOKENS_JS)
+                if result and result.get("devToken") and result.get("userToken"):
+                    logger.info("Apple Music session 可用")
+                    return True
+            except Exception:
+                pass
+
+        logger.warning("Apple Music session 尚未就緒")
+        return False
+    finally:
+        driver.quit()
+
+
 def main() -> None:
     """CLI 進入點：解析命令列參數並執行對應功能。"""
     parser = argparse.ArgumentParser(description="從音樂評論網站蒐集推薦曲目")
@@ -335,6 +362,11 @@ def main() -> None:
         action="store_true",
         help="在蒐集完成後，自動將新歌單同步至 Apple Music（需使用瀏覽器）",
     )
+    parser.add_argument(
+        "--check-apple-music-session",
+        action="store_true",
+        help="僅檢查目前 Apple Music browser profile session 是否可用",
+    )
     parser.add_argument("--web", action="store_true", help="啟動 Streamlit Web 介面")
     parser.add_argument(
         "--recover-apple-music",
@@ -371,6 +403,8 @@ def main() -> None:
             print(f"   1. 前往 https://www.tunemymusic.com/")
             print(f"   2. 上傳 {csv_path}")
             print(f"   3. 選擇 Apple Music 作為目標")
+    elif args.check_apple_music_session:
+        raise SystemExit(0 if check_apple_music_session() else 1)
     else:
         run(
             dry_run=args.dry_run,

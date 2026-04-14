@@ -12,6 +12,7 @@ def test_build_apple_music_message_marks_auth_required_as_skipped() -> None:
 
     assert "Apple Music 已略過" in message
     assert "需要重新登入" in message
+    assert "./bootstrap-apple-music-login.sh" in message
     assert "./sync-apple-music.sh" in message
     assert "Critics' Picks — Fresh Tracks" in message
 

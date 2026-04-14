@@ -13,6 +13,7 @@ import csv
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -37,6 +38,7 @@ TRACKS_BATCH_SIZE = 300
 
 # 搜尋各請求間隔（避免觸發 rate limit）
 SEARCH_INTERVAL = 0.15
+INLINE_LOGIN_INPUT_GRACE_PERIOD = 90
 
 
 class AppleMusicAuthRequiredError(RuntimeError):
@@ -160,6 +162,37 @@ def _click_sign_in(driver: webdriver.Chrome) -> None:
         logger.warning("Sign In 觸發失敗（未找到按鈕，authorize() 也拋出例外）")
 
 
+def _focus_login_window(driver: webdriver.Chrome) -> None:
+    """Bring the Apple Music login UI to the foreground on macOS.
+
+    Shortcut launches via Terminal/app wrappers can leave the Chrome login window
+    visible but unfocused, which makes Apple ID fields appear untypeable. Focus
+    the browser window explicitly before waiting for the user to complete login.
+    """
+    try:
+        driver.execute_script(
+            "window.focus(); if (document && document.body) { document.body.focus(); }"
+        )
+    except Exception:
+        pass
+
+    if sys.platform != "darwin":
+        return
+
+    script = (
+        'tell application "Google Chrome"\n'
+        "activate\n"
+        "try\n"
+        "set index of front window to 1\n"
+        "end try\n"
+        "end tell"
+    )
+    try:
+        subprocess.run(["osascript", "-e", script], check=False, capture_output=True)
+    except Exception:
+        pass
+
+
 def _wait_for_user_token(driver: webdriver.Chrome, timeout: int = 300) -> str | None:
     """等待 Apple ID 登入完成並回傳 user token。
 
@@ -169,6 +202,7 @@ def _wait_for_user_token(driver: webdriver.Chrome, timeout: int = 300) -> str | 
     """
     main_window = driver.current_window_handle
     start = time.time()
+    inline_login_quiet_until: float | None = None
 
     # ── 等待登入彈窗出現（最多 30 秒） ──
     popup_handle = None
@@ -184,6 +218,7 @@ def _wait_for_user_token(driver: webdriver.Chrome, timeout: int = 300) -> str | 
         # 切至彈窗，讓用戶看到登入畫面
         try:
             driver.switch_to.window(popup_handle)
+            _focus_login_window(driver)
             logger.info(f"Apple ID 登入視窗已開啟：{driver.current_url}")
         except Exception:
             pass
@@ -205,11 +240,27 @@ def _wait_for_user_token(driver: webdriver.Chrome, timeout: int = 300) -> str | 
             pass
     else:
         # 行內登入（modal overlay）：無新視窗，直接等待 token
+        _focus_login_window(driver)
+        inline_login_quiet_until = time.time() + INLINE_LOGIN_INPUT_GRACE_PERIOD
         logger.info("偵測到行內登入 modal，請在瀏覽器中完成登入")
+        logger.info(
+            "暫停 token 輪詢 %s 秒，避免干擾密碼與驗證碼輸入",
+            INLINE_LOGIN_INPUT_GRACE_PERIOD,
+        )
 
     # ── 等待 token 寫入 MusicKit（行內登入或 popup 後） ──
     # 用戶完成登入後 MusicKit 異步寫入 token，持續輪詢直到取得或逾時
     while time.time() - start < timeout:
+        if (
+            inline_login_quiet_until is not None
+            and time.time() < inline_login_quiet_until
+        ):
+            elapsed = int(time.time() - start)
+            if elapsed > 0 and elapsed % 30 == 0:
+                logger.info(f"等待使用者完成行內登入... ({elapsed}s)")
+            time.sleep(3)
+            continue
+
         try:
             result = driver.execute_script(_EXTRACT_TOKENS_JS)
             if result and result.get("userToken"):

@@ -7,16 +7,16 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/Henry/Project/music-collector/sync-apple-music.sh</string>
+        <string>/path/to/music-collector/sync-apple-music.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/Henry/Project/music-collector</string>
+    <string>/path/to/music-collector</string>
 
     <key>StandardOutPath</key>
-    <string>/Users/Henry/Project/music-collector/data/apple_music_manual.log</string>
+    <string>/path/to/music-collector/data/apple_music_manual.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/Henry/Project/music-collector/data/apple_music_manual.log</string>
+    <string>/path/to/music-collector/data/apple_music_manual.log</string>
 
     <key>TimeOut</key>
     <integer>7200</integer>
@@ -24,9 +24,9 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/Users/Henry/.local/bin</string>
+        <string>/usr/local/bin:/usr/bin:/bin:/home/USERNAME/.local/bin</string>
         <key>PYTHONPATH</key>
-        <string>/Users/Henry/Project/music-collector/src</string>
+        <string>/path/to/music-collector/src</string>
     </dict>
 </dict>
 </plist>

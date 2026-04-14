@@ -68,3 +68,90 @@ def test_import_to_apple_music_propagates_auth_required_and_closes_driver(
         api.import_to_apple_music(str(csv_path))
 
     driver.quit.assert_called_once_with()
+
+
+def test_focus_login_window_activates_chrome_on_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _make_driver()
+    run_mock = Mock()
+
+    monkeypatch.setattr(api.sys, "platform", "darwin")
+    monkeypatch.setattr(api.subprocess, "run", run_mock)
+
+    api._focus_login_window(cast(webdriver.Chrome, driver))
+
+    driver.execute_script.assert_called_once()
+    run_mock.assert_called_once()
+
+
+def test_focus_login_window_skips_osascript_off_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _make_driver()
+    run_mock = Mock()
+
+    monkeypatch.setattr(api.sys, "platform", "linux")
+    monkeypatch.setattr(api.subprocess, "run", run_mock)
+
+    api._focus_login_window(cast(webdriver.Chrome, driver))
+
+    driver.execute_script.assert_called_once()
+    run_mock.assert_not_called()
+
+
+def test_wait_for_user_token_skips_token_polling_during_inline_grace_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _make_driver()
+    driver.current_window_handle = "main"
+    driver.window_handles = ["main"]
+
+    class _StopLoop(Exception):
+        pass
+
+    def execute_script(script: str):
+        if script == api._EXTRACT_TOKENS_JS:
+            pytest.fail(
+                "token polling should be paused during inline input grace period"
+            )
+        return None
+
+    driver.execute_script.side_effect = execute_script
+    monkeypatch.setattr(api.time, "time", lambda: 0.0)
+    monkeypatch.setattr(api, "_focus_login_window", lambda _driver: None)
+
+    def stop_sleep(_seconds: float) -> None:
+        raise _StopLoop
+
+    monkeypatch.setattr(api.time, "sleep", stop_sleep)
+
+    with pytest.raises(_StopLoop):
+        api._wait_for_user_token(cast(webdriver.Chrome, driver), timeout=30)
+
+
+def test_wait_for_user_token_resumes_polling_after_inline_grace_period(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _make_driver()
+    driver.current_window_handle = "main"
+    driver.window_handles = ["main"]
+
+    times = iter([0.0, 0.0, 91.0, 91.0])
+
+    def fake_time() -> float:
+        return next(times)
+
+    def execute_script(script: str):
+        if script == api._EXTRACT_TOKENS_JS:
+            return {"userToken": "user-token"}
+        return None
+
+    driver.execute_script.side_effect = execute_script
+    monkeypatch.setattr(api.time, "time", fake_time)
+    monkeypatch.setattr(api.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(api, "_focus_login_window", lambda _driver: None)
+
+    user_token = api._wait_for_user_token(cast(webdriver.Chrome, driver), timeout=300)
+
+    assert user_token == "user-token"
