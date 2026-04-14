@@ -305,6 +305,19 @@ def check_apple_music_session() -> bool:
         driver.quit()
 
 
+def sync_current_playlist_to_apple_music() -> bool:
+    """匯出目前 Spotify 主歌單並同步至 Apple Music。"""
+    from .apple_music import import_to_apple_music
+
+    csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
+    if not csv_path:
+        logger.error("匯出 Spotify 歌單失敗")
+        return False
+
+    logger.info("開始手動 Apple Music 同步...")
+    return bool(import_to_apple_music(str(csv_path), playlist_name=PLAYLIST_NAME))
+
+
 def main() -> None:
     """CLI 進入點：解析命令列參數並執行對應功能。"""
     parser = argparse.ArgumentParser(description="從音樂評論網站蒐集推薦曲目")
@@ -405,6 +418,8 @@ def main() -> None:
             print(f"   3. 選擇 Apple Music 作為目標")
     elif args.check_apple_music_session:
         raise SystemExit(0 if check_apple_music_session() else 1)
+    elif args.apple_music:
+        raise SystemExit(0 if sync_current_playlist_to_apple_music() else 1)
     else:
         run(
             dry_run=args.dry_run,
