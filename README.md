@@ -166,58 +166,79 @@ A validation pass runs iteratively during script execution over the main playlis
 music-collector/
 ├── pyproject.toml                  # Settings & pip requirements
 ├── .env.example                    # Environment variable templates
+├── .python-version                 # Python version pin
+├── CLAUDE.md                       # Claude Code project guide
+├── AGENTS.md                       # Multi-agent collaboration guide
+├── auth.py                         # Single-use Spotify OAuth authenticator
+├── Dockerfile                      # Docker build directives
+├── docker-compose.yml              # Docker Compose services
+│
+│   # ─── Shell scripts & Finder launchers ───
 ├── run.sh                          # CLI manual execution macro
 ├── run-scheduled.sh                # Daily schedule wrapper (crawl + Spotify + Apple Music)
-├── auth.py                         # Single-use Spotify OAuth authenticator
-├── Dockerfile                      # Docker Build directives
-├── docker-compose.yml              # Standardized services
-├── com.music-collector.plist       # macOS OS-level launchd directive
-├── .github/workflows/ci.yml       # GitHub Actions CI testing stack
+├── apple-music-tools.command       # Unified Apple Music tools menu (recommended)
+├── bootstrap-apple-music-login.sh  # Open Chrome for Apple ID login
+├── bootstrap-apple-music-login.command
+├── recover-apple-music-sync.sh     # Recovery flow: login → validate → sync
+├── recover-apple-music-sync.command
+├── sync-apple-music.sh             # Apple Music sync only
+├── sync-apple-music.command
+│
+│   # ─── macOS launchd templates ───
+├── com.music-collector.plist.example
+├── com.music-collector.apple-music-manual.plist.example
+│
+│   # ─── GitHub Actions ───
+├── .github/workflows/ci.yml       # CI: ruff lint + pytest
+│
 ├── src/
 │   └── music_collector/
-│       ├── __main__.py             # Base CLI runner root
-│       ├── main.py                 # Core routing handling (Concurrent scraping)
-│       ├── config.py               # Constants mapping to ENV files
-│       ├── spotify.py              # Extends spotipy
-│       ├── db.py                   # Deduplication and local SQLite persistence
-│       ├── backup.py               # Produces the JSON quarter log logic
-│       ├── export.py               # Serializes the outputs to CSV/TXT/Spotify URL vectors
-│       ├── notify.py               # Dispatching hooks utilizing Webhooks
-│       ├── stats.py                # Mathematical overlapping evaluation
-│       ├── web.py                  # Local frontend driven by Streamlit
-│       ├── apple_music/            # Integrates directly to Apple Music
+│       ├── __main__.py             # CLI entry point
+│       ├── main.py                 # Core router (concurrent scraping)
+│       ├── config.py               # Environment variables & constants
+│       ├── spotify.py              # Spotify API integration (spotipy)
+│       ├── db.py                   # SQLite deduplication & persistence
+│       ├── backup.py               # Quarterly JSON backup
+│       ├── export.py               # CSV / TXT / Spotify URL export
+│       ├── notify.py               # LINE + Telegram + Slack notifications
+│       ├── stats.py                # Source contribution & overlap analytics
+│       ├── web.py                  # Streamlit web interface
+│       ├── apple_music/            # Apple Music auto-import (modular)
 │       │   ├── __init__.py
-│       │   ├── api.py              # Direct Apple Music REST API import (primary)
-│       │   ├── browser.py          # Chrome Driver handler & Anti-bot stealth logic
-│       │   ├── playlist.py         # Extends AppleScript & MusicKit to create logic
-│       │   └── transfer.py         # TuneMyMusic GUI automation (legacy fallback)
-│       ├── tunemymusic.py          # Bridging backward compatibility logic
+│       │   ├── api.py              # Apple Music REST API direct import (primary)
+│       │   ├── browser.py          # Chrome driver & anti-detection stealth
+│       │   ├── playlist.py         # Playlist management (MusicKit JS + AppleScript)
+│       │   └── transfer.py         # TuneMyMusic automation (legacy fallback)
+│       ├── tunemymusic.py          # Backward-compatible re-export of apple_music
 │       └── scrapers/
-│           ├── __init__.py         # Global Scraper Repository Array (13 Modules)
-│           ├── base.py             # Skeleton implementation logic extending beautifulsoup + Playwright
+│           ├── __init__.py         # Scraper registry (13 modules)
+│           ├── base.py             # BaseScraper + Track model + Playwright support
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
-│           ├── lineofbestfit.py    # The Line of Best Fit
-│           ├── consequence.py      # Consequence of Sound
-│           ├── nme.py              # NME
-│           ├── spin.py             # SPIN
-│           ├── rollingstone.py     # Rolling Stone
-│           ├── slant.py            # Slant Magazine
-│           ├── complex.py          # Complex (+ Playwright)
-│           ├── residentadvisor.py  # Resident Advisor (+ Playwright)
+│           ├── lineofbestfit.py    # The Line of Best Fit (HTML)
+│           ├── consequence.py      # Consequence of Sound (HTML)
+│           ├── nme.py              # NME (HTML)
+│           ├── spin.py             # SPIN (HTML)
+│           ├── rollingstone.py     # Rolling Stone (HTML)
+│           ├── slant.py            # Slant Magazine (HTML + JS detection)
+│           ├── complex.py          # Complex (HTML + Playwright)
+│           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
 │           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
 │           ├── bandcamp.py         # Bandcamp Daily (RSS)
 │           └── quietus.py          # The Quietus (RSS)
 ├── tests/
-│   ├── conftest.py                 # PyTest standard fixtures
-│   ├── fixtures/html/              # Embedded sample testing mock HTML models
-│   └── scrapers/                   # Individual unittests verifying array outputs
-└── data/
-    ├── tracks.db                   # Main memory cache SQLite DB
-    ├── collector.log               # CLI activity tracing log stream
-    ├── browser_profile/            # User-Data Chrome profiles matching Selenium logins (Apple ID persistence)
-    ├── backups/                    # Target log dump folder
-    └── exports/                    # External output container
+│   ├── conftest.py                 # Global pytest fixtures
+│   ├── test_apple_music_api.py     # Apple Music API tests
+│   ├── test_notify.py              # Notification tests
+│   ├── fixtures/html/              # HTML mock fixtures
+│   └── scrapers/                   # Per-scraper unit tests (13 modules)
+└── data/                           # Local runtime data (git-ignored)
+    ├── tracks.db                   # SQLite database
+    ├── collector.log               # Scheduled run log
+    ├── apple_music_recovery.log    # Recovery flow log
+    ├── browser_profile/            # Chrome user data (Apple ID session)
+    ├── backups/                    # Quarterly JSON backups
+    └── exports/                    # Export output files
 ```
 
 ### Docker Deployments
@@ -476,13 +497,31 @@ PYTHONPATH=src uv run python auth.py
 music-collector/
 ├── pyproject.toml                  # 專案設定與依賴
 ├── .env.example                    # 環境變數範本
-├── run.sh                          # 手動執行腳本
-├── run-scheduled.sh                # 每日排程腳本（擷取 + Spotify + Apple Music）
+├── .python-version                 # Python 版本鎖定
+├── CLAUDE.md                       # Claude Code 專案指引
+├── AGENTS.md                       # 多 Agent 協作規範
 ├── auth.py                         # Spotify OAuth 一次性授權工具
 ├── Dockerfile                      # Docker 容器化
 ├── docker-compose.yml              # Docker Compose 設定
-├── com.music-collector.plist       # macOS launchd 排程設定
-├── .github/workflows/ci.yml       # GitHub Actions CI
+│
+│   # ─── Shell 腳本與 Finder 啟動器 ───
+├── run.sh                          # 手動執行腳本
+├── run-scheduled.sh                # 每日排程腳本（擷取 + Spotify + Apple Music）
+├── apple-music-tools.command       # 統一 Apple Music 工具選單（建議）
+├── bootstrap-apple-music-login.sh  # 開啟 Chrome 完成 Apple ID 登入
+├── bootstrap-apple-music-login.command
+├── recover-apple-music-sync.sh     # 恢復流程：登入 → 驗證 → 同步
+├── recover-apple-music-sync.command
+├── sync-apple-music.sh             # 僅 Apple Music 同步
+├── sync-apple-music.command
+│
+│   # ─── macOS launchd 範本 ───
+├── com.music-collector.plist.example
+├── com.music-collector.apple-music-manual.plist.example
+│
+│   # ─── GitHub Actions ───
+├── .github/workflows/ci.yml       # CI：ruff lint + pytest
+│
 ├── src/
 │   └── music_collector/
 │       ├── __main__.py             # CLI 進入點
@@ -491,7 +530,7 @@ music-collector/
 │       ├── spotify.py              # Spotify API 整合
 │       ├── db.py                   # SQLite 曲目紀錄與去重
 │       ├── backup.py               # 季度 JSON 備份
-│       ├── export.py               # CSV/TXT/Spotify URL 匯出
+│       ├── export.py               # CSV / TXT / Spotify URL 匯出
 │       ├── notify.py               # LINE + Telegram + Slack 通知
 │       ├── stats.py                # 資料分析模組
 │       ├── web.py                  # Streamlit Web 介面
@@ -507,25 +546,28 @@ music-collector/
 │           ├── base.py             # 基礎擷取器（含 Playwright）
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
-│           ├── lineofbestfit.py    # The Line of Best Fit
-│           ├── consequence.py      # Consequence of Sound
-│           ├── nme.py              # NME
-│           ├── spin.py             # SPIN
-│           ├── rollingstone.py     # Rolling Stone
-│           ├── slant.py            # Slant Magazine
-│           ├── complex.py          # Complex (+ Playwright)
-│           ├── residentadvisor.py  # Resident Advisor (+ Playwright)
+│           ├── lineofbestfit.py    # The Line of Best Fit (HTML)
+│           ├── consequence.py      # Consequence of Sound (HTML)
+│           ├── nme.py              # NME (HTML)
+│           ├── spin.py             # SPIN (HTML)
+│           ├── rollingstone.py     # Rolling Stone (HTML)
+│           ├── slant.py            # Slant Magazine (HTML + JS 偵測)
+│           ├── complex.py          # Complex (HTML + Playwright)
+│           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
 │           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
 │           ├── bandcamp.py         # Bandcamp Daily (RSS)
 │           └── quietus.py          # The Quietus (RSS)
 ├── tests/
 │   ├── conftest.py                 # 全域 fixtures
+│   ├── test_apple_music_api.py     # Apple Music API 測試
+│   ├── test_notify.py              # 通知模組測試
 │   ├── fixtures/html/              # HTML fixture 檔案
 │   └── scrapers/                   # 擷取器測試（13 個）
-└── data/
+└── data/                           # 本地執行資料（git-ignored）
     ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
-    ├── browser_profile/            # Selenium Chrome 使用者資料（Apple ID 登入狀態）
+    ├── apple_music_recovery.log    # Recovery 流程日誌
+    ├── browser_profile/            # Chrome 使用者資料（Apple ID 登入狀態）
     ├── backups/                    # 季度 JSON 備份
     └── exports/                    # 匯出檔案
 ```

@@ -84,7 +84,7 @@ docker compose run collector --dry-run
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
 - `src/music_collector/main.py` — 主流程與 CLI（13 個擷取器透過 `asyncio.gather` 並行執行）
-- `tests/` — 82 項測試（pytest + respx mock）
+- `tests/` — 90 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
 
