@@ -13,7 +13,7 @@ from pathlib import Path
 
 from selenium import webdriver
 
-from .browser import APPLE_MUSIC_API_JS, save_debug_screenshot
+from .browser import APPLE_MUSIC_API_JS
 
 logger = logging.getLogger(__name__)
 

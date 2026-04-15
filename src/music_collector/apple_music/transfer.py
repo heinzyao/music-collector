@@ -296,7 +296,7 @@ def _set_playlist_name(driver: webdriver.Chrome, name: str) -> None:
     except Exception as e:
         logger.debug(f"JS 搜尋播放清單名稱欄位失敗：{e}")
 
-    logger.warning(f"找不到播放清單名稱編輯欄位，將使用 CSV 檔名作為播放清單名稱")
+    logger.warning("找不到播放清單名稱編輯欄位，將使用 CSV 檔名作為播放清單名稱")
     save_debug_screenshot(driver, "set_playlist_name")
 
 

@@ -5,12 +5,9 @@
 
 import json
 import sqlite3
-from collections import Counter
-from pathlib import Path
-
 import streamlit as st
 
-from .config import BACKUP_DIR, DATA_DIR, DB_PATH
+from .config import BACKUP_DIR, DB_PATH
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -32,7 +29,12 @@ def page_browse() -> None:
     # 篩選條件
     col1, col2, col3 = st.columns(3)
 
-    sources = [r[0] for r in conn.execute("SELECT DISTINCT source FROM tracks ORDER BY source").fetchall()]
+    sources = [
+        r[0]
+        for r in conn.execute(
+            "SELECT DISTINCT source FROM tracks ORDER BY source"
+        ).fetchall()
+    ]
 
     with col1:
         selected_source = st.selectbox("來源", ["全部"] + sources)
@@ -78,13 +80,15 @@ def page_browse() -> None:
     if rows:
         data = []
         for r in rows:
-            data.append({
-                "藝人": r["artist"],
-                "曲名": r["title"],
-                "來源": r["source"],
-                "Spotify": "✅" if r["spotify_uri"] else "❌",
-                "加入日期": r["added_at"][:10] if r["added_at"] else "",
-            })
+            data.append(
+                {
+                    "藝人": r["artist"],
+                    "曲名": r["title"],
+                    "來源": r["source"],
+                    "Spotify": "✅" if r["spotify_uri"] else "❌",
+                    "加入日期": r["added_at"][:10] if r["added_at"] else "",
+                }
+            )
         st.dataframe(data, use_container_width=True)
     else:
         st.info("無符合條件的曲目。")
@@ -106,7 +110,6 @@ def page_stats() -> None:
     ).fetchall()
 
     if rows:
-        sources = [r["source"] for r in rows]
         totals = [r["total"] for r in rows]
         matched = [r["matched"] for r in rows]
 
@@ -119,7 +122,9 @@ def page_stats() -> None:
         with col2:
             st.subheader("Spotify 配對率")
             rate_data = {
-                r["source"]: round(r["matched"] / r["total"] * 100, 1) if r["total"] else 0
+                r["source"]: round(r["matched"] / r["total"] * 100, 1)
+                if r["total"]
+                else 0
                 for r in rows
             }
             st.bar_chart(rate_data)
@@ -177,12 +182,14 @@ def page_backups() -> None:
         if data:
             display = []
             for t in data:
-                display.append({
-                    "藝人": t.get("artist", ""),
-                    "曲名": t.get("title", ""),
-                    "來源": t.get("source", ""),
-                    "Spotify": "✅" if t.get("spotify_uri") else "❌",
-                })
+                display.append(
+                    {
+                        "藝人": t.get("artist", ""),
+                        "曲名": t.get("title", ""),
+                        "來源": t.get("source", ""),
+                        "Spotify": "✅" if t.get("spotify_uri") else "❌",
+                    }
+                )
             st.dataframe(display, use_container_width=True)
 
 

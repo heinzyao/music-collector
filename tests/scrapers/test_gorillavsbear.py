@@ -1,7 +1,5 @@
 """Gorilla vs. Bear 擷取器測試。"""
 
-import pytest
-
 from music_collector.scrapers.gorillavsbear import GorillaVsBearScraper
 
 
@@ -10,7 +8,9 @@ class TestGorillaVsBearScraper:
 
     def test_parse_standard_title(self):
         """標準「Artist – Title」格式。"""
-        result = GorillaVsBearScraper.parse_artist_title("Waxahatchee \u2013 Tigers Blood")
+        result = GorillaVsBearScraper.parse_artist_title(
+            "Waxahatchee \u2013 Tigers Blood"
+        )
         assert result == ("Waxahatchee", "Tigers Blood")
 
     def test_parse_dash_title(self):

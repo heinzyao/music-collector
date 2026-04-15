@@ -9,7 +9,7 @@ import csv
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from .config import BACKUP_DIR, PLAYLIST_NAME

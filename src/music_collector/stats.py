@@ -49,7 +49,7 @@ def show_overview() -> None:
     ).fetchall()
 
     if recent:
-        print(f"\n  近 7 天趨勢：")
+        print("\n  近 7 天趨勢：")
         for r in recent:
             bar = "█" * min(r["cnt"], 50)
             print(f"  {r['day']}  {bar} {r['cnt']}")
@@ -65,8 +65,7 @@ def show_overlap() -> None:
     # 因為 UNIQUE(artist, title) 限制，同一曲目只有一筆記錄
     # 但我們可以分析不同 source 推薦了相同 artist 的曲目
     rows = conn.execute(
-        "SELECT LOWER(artist) as a, LOWER(title) as t, source "
-        "FROM tracks ORDER BY a, t"
+        "SELECT LOWER(artist) as a, LOWER(title) as t, source FROM tracks ORDER BY a, t"
     ).fetchall()
 
     conn.close()
@@ -89,7 +88,7 @@ def show_overlap() -> None:
         print(f"    {src}: {len(source_artists[src])} 位藝人")
 
     if len(sources) >= 2:
-        print(f"\n  來源間共同藝人：")
+        print("\n  來源間共同藝人：")
         for i in range(len(sources)):
             for j in range(i + 1, len(sources)):
                 s1, s2 = sources[i], sources[j]
@@ -101,7 +100,7 @@ def show_overlap() -> None:
     artist_counts = Counter(r["a"] for r in rows)
     top = artist_counts.most_common(10)
     if top:
-        print(f"\n  最常被推薦的藝人（前 10）：")
+        print("\n  最常被推薦的藝人（前 10）：")
         for artist, count in top:
             print(f"    {artist}: {count} 首")
 
@@ -130,7 +129,9 @@ def show_sources() -> None:
     for r in rows:
         rate = f"{r['matched'] / r['total'] * 100:.0f}%" if r["total"] else "N/A"
         last = r["last_activity"][:10] if r["last_activity"] else "N/A"
-        print(f"  {r['source']:<25} {r['total']:>6} {r['matched']:>6} {rate:>8} {last:<20}")
+        print(
+            f"  {r['source']:<25} {r['total']:>6} {r['matched']:>6} {rate:>8} {last:<20}"
+        )
 
 
 def show_stats(subcommand: str | None = None) -> None:

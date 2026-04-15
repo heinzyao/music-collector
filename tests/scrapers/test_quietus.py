@@ -1,7 +1,5 @@
 """The Quietus 擷取器測試。"""
 
-import pytest
-
 from music_collector.scrapers.quietus import TheQuietusScraper
 
 
@@ -14,9 +12,13 @@ class TestTheQuietusScraper:
         assert result == ("Overmono", "Good Lies")
 
     def test_parse_dash_title(self):
-        result = TheQuietusScraper.parse_artist_title("Aphex Twin - Selected Ambient Works")
+        result = TheQuietusScraper.parse_artist_title(
+            "Aphex Twin - Selected Ambient Works"
+        )
         assert result == ("Aphex Twin", "Selected Ambient Works")
 
     def test_parse_no_separator(self):
-        result = TheQuietusScraper.parse_artist_title("The Quietus Guide to Electronic Music")
+        result = TheQuietusScraper.parse_artist_title(
+            "The Quietus Guide to Electronic Music"
+        )
         assert result is None
