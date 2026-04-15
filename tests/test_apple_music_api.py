@@ -36,9 +36,10 @@ def test_get_tokens_fails_fast_when_manual_login_is_unavailable(
     monkeypatch.setattr(api, "WebDriverWait", _FakeWait)
     monkeypatch.setattr(api.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(api, "_interactive_login_allowed", lambda: False)
+    monkeypatch.setattr(api, "_validate_session", lambda _d, _u: False)
     monkeypatch.setattr(
         api,
-        "_click_sign_in",
+        "_trigger_auth",
         lambda _driver: pytest.fail("interactive login should not be triggered"),
     )
 
@@ -100,57 +101,96 @@ def test_focus_login_window_skips_osascript_off_macos(
     run_mock.assert_not_called()
 
 
-def test_wait_for_user_token_skips_token_polling_during_inline_grace_period(
+def test_wait_for_user_token_polls_login_state_and_returns_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     driver = _make_driver()
     driver.current_window_handle = "main"
     driver.window_handles = ["main"]
 
-    class _StopLoop(Exception):
-        pass
+    call_count = 0
 
     def execute_script(script: str):
-        if script == api._EXTRACT_TOKENS_JS:
-            pytest.fail(
-                "token polling should be paused during inline input grace period"
-            )
+        nonlocal call_count
+        if script == api._LOGIN_STATE_JS:
+            call_count += 1
+            if call_count >= 3:
+                return {
+                    "userToken": "user-token",
+                    "isAuthorized": True,
+                    "step": "none",
+                    "hasDialog": False,
+                    "errorHint": None,
+                }
+            return {
+                "userToken": None,
+                "isAuthorized": False,
+                "step": "email",
+                "hasDialog": True,
+                "errorHint": None,
+            }
         return None
 
     driver.execute_script.side_effect = execute_script
-    monkeypatch.setattr(api.time, "time", lambda: 0.0)
-    monkeypatch.setattr(api, "_focus_login_window", lambda _driver: None)
-
-    def stop_sleep(_seconds: float) -> None:
-        raise _StopLoop
-
-    monkeypatch.setattr(api.time, "sleep", stop_sleep)
-
-    with pytest.raises(_StopLoop):
-        api._wait_for_user_token(cast(webdriver.Chrome, driver), timeout=30)
-
-
-def test_wait_for_user_token_resumes_polling_after_inline_grace_period(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    driver = _make_driver()
-    driver.current_window_handle = "main"
-    driver.window_handles = ["main"]
-
-    times = iter([0.0, 0.0, 91.0, 91.0])
-
-    def fake_time() -> float:
-        return next(times)
-
-    def execute_script(script: str):
-        if script == api._EXTRACT_TOKENS_JS:
-            return {"userToken": "user-token"}
-        return None
-
-    driver.execute_script.side_effect = execute_script
-    monkeypatch.setattr(api.time, "time", fake_time)
     monkeypatch.setattr(api.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(api, "_focus_login_window", lambda _driver: None)
+
+    elapsed = [0.0]
+
+    def fake_time() -> float:
+        elapsed[0] += 1.0
+        return elapsed[0]
+
+    monkeypatch.setattr(api.time, "time", fake_time)
+
+    user_token = api._wait_for_user_token(cast(webdriver.Chrome, driver), timeout=300)
+
+    assert user_token == "user-token"
+    assert call_count >= 3
+
+
+def test_wait_for_user_token_extends_deadline_on_step_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _make_driver()
+    driver.current_window_handle = "main"
+    driver.window_handles = ["main"]
+
+    steps = iter(["email", "password", "otp"])
+    current_step = ["email"]
+
+    def execute_script(script: str):
+        if script == api._LOGIN_STATE_JS:
+            try:
+                current_step[0] = next(steps)
+            except StopIteration:
+                return {
+                    "userToken": "user-token",
+                    "isAuthorized": True,
+                    "step": "none",
+                    "hasDialog": False,
+                    "errorHint": None,
+                }
+            return {
+                "userToken": None,
+                "isAuthorized": False,
+                "step": current_step[0],
+                "hasDialog": True,
+                "errorHint": None,
+            }
+        return None
+
+    driver.execute_script.side_effect = execute_script
+    monkeypatch.setattr(api.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(api, "_focus_login_window", lambda _driver: None)
+
+    elapsed = [0.0]
+
+    def fake_time() -> float:
+        elapsed[0] += 1.0
+        return elapsed[0]
+
+    monkeypatch.setattr(api.time, "time", fake_time)
 
     user_token = api._wait_for_user_token(cast(webdriver.Chrome, driver), timeout=300)
 

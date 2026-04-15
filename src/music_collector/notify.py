@@ -236,10 +236,9 @@ def _build_apple_music_message(
             if playlist_name:
                 msg += f"\n播放清單：{playlist_name}"
             msg += "\n原因：Apple Music 需要重新登入，目前排程不支援互動式登入。"
-            msg += "\n\n建議處理方式："
-            msg += "\n1. 先執行 ./bootstrap-apple-music-login.sh"
-            msg += "\n2. 在正常 Chrome 視窗完成 Apple 登入"
-            msg += "\n3. 再執行 ./sync-apple-music.sh"
+            msg += (
+                "\n\n請雙擊 ./apple-music-tools.command 完成登入，下次排程將自動同步。"
+            )
         else:
             msg = "🍎 Apple Music 匯入失敗\n"
             if error:

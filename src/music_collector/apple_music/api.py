@@ -38,7 +38,11 @@ TRACKS_BATCH_SIZE = 300
 
 # 搜尋各請求間隔（避免觸發 rate limit）
 SEARCH_INTERVAL = 0.15
-INLINE_LOGIN_INPUT_GRACE_PERIOD = 90
+
+# 登入等待設定
+LOGIN_TIMEOUT = 300  # 基本逾時（秒）
+LOGIN_HARD_DEADLINE = 600  # 絕對上限（秒）
+LOGIN_PROGRESS_EXTEND = 120  # 偵測到進度時延長的秒數
 
 
 class AppleMusicAuthRequiredError(RuntimeError):
@@ -78,8 +82,6 @@ def _is_match(expected: str, actual: str) -> bool:
 
 # ── Token 取得 ──
 
-# music.apple.com 上取 token 用的 JS：
-# 直接讀取 MusicKit 實例的公開屬性，不依賴 TuneMyMusic 的 localStorage key。
 _EXTRACT_TOKENS_JS = """
 var music = null;
 if (typeof MusicKit !== 'undefined') {
@@ -95,7 +97,6 @@ if (music) {
     userToken = music.musicUserToken || null;
 }
 
-// music.apple.com 有時將 user token 存在 media-user-token cookie
 if (!userToken) {
     try {
         var match = document.cookie.match(/media-user-token=([^;]+)/);
@@ -103,7 +104,6 @@ if (!userToken) {
     } catch(e) {}
 }
 
-// 從 localStorage 的 music.{appId}.u 格式取得（備援）
 if (!userToken) {
     try {
         for (var i = 0; i < localStorage.length; i++) {
@@ -124,51 +124,89 @@ return {
 };
 """
 
+_LOGIN_STATE_JS = """
+return (function () {
+    var mk = (window.MusicKit && MusicKit.getInstance) ? MusicKit.getInstance() : null;
+    var userToken = mk && mk.musicUserToken ? mk.musicUserToken : null;
+    var isAuthorized = !!(mk && mk.isAuthorized);
 
-def _click_sign_in(driver: webdriver.Chrome) -> None:
-    """點擊 music.apple.com 的 Sign In 按鈕，觸發 Apple ID 登入流程。
+    var dialog = document.querySelector(
+        '[role="dialog"], [aria-modal="true"], .modal, .sheet, .overlay'
+    );
+    var email = document.querySelector(
+        'input[type="email"], input[autocomplete="username"], '
+        + 'input[name*="apple"], input[id*="apple"]'
+    );
+    var pwd = document.querySelector(
+        'input[type="password"], input[autocomplete="current-password"]'
+    );
+    var otp = document.querySelector(
+        'input[autocomplete="one-time-code"], '
+        + 'input[inputmode="numeric"][maxlength="6"], '
+        + 'input[name*="code"], input[id*="code"]'
+    );
 
-    使用 JS click 繞過可能存在的 overlay 攔截問題。
-    若未找到按鈕則降級至 MusicKit.authorize()。
+    var step = 'none';
+    if (otp) step = 'otp';
+    else if (pwd) step = 'password';
+    else if (email) step = 'email';
+    else if (dialog) step = 'modal';
+
+    var err = document.querySelector(
+        '[class*="error"], [data-testid*="error"], .error, .error-message'
+    );
+    var errorHint = err ? (err.innerText || '').trim().slice(0, 200) : null;
+
+    return {
+        userToken: userToken,
+        isAuthorized: isAuthorized,
+        step: step,
+        hasDialog: !!dialog,
+        errorHint: errorHint
+    };
+})();
+"""
+
+
+def _trigger_auth(driver: webdriver.Chrome) -> None:
+    """Trigger Apple Music authorization.
+
+    Prefers MusicKit.authorize() (canonical path); falls back to clicking the
+    Sign In button if authorize() is unavailable or doesn't produce UI.
     """
-    # JS click 可繞過 overlay 阻擋，直接觸發 click 事件
-    clicked = driver.execute_script(
+    result = driver.execute_script(
         """
-        // music.apple.com 使用 Svelte，Sign In 按鈕的 class 含 'signin'
+        try {
+            var mk = MusicKit.getInstance();
+            if (mk && typeof mk.authorize === 'function') {
+                mk.authorize().catch(function(){});
+                return 'authorize';
+            }
+        } catch(e) {}
+
         var btns = document.querySelectorAll(
             'button.signin, button[class*="signin"]'
         );
         for (var i = 0; i < btns.length; i++) {
             var b = btns[i];
-            // 取可見的那個（offsetParent !== null 或有尺寸）
             if (b.offsetParent !== null || b.offsetWidth > 0 || b.offsetHeight > 0) {
                 b.click();
                 return 'button';
             }
         }
-        // 降級：MusicKit.authorize()
-        try {
-            MusicKit.getInstance().authorize().catch(function(){});
-            return 'authorize';
-        } catch(e) {}
         return 'failed';
         """
     )
-    if clicked == "button":
-        logger.info("已 JS 點擊 Sign In 按鈕")
-    elif clicked == "authorize":
+    if result == "authorize":
         logger.info("已呼叫 MusicKit.authorize()")
+    elif result == "button":
+        logger.info("已 JS 點擊 Sign In 按鈕")
     else:
-        logger.warning("Sign In 觸發失敗（未找到按鈕，authorize() 也拋出例外）")
+        logger.warning("Sign In 觸發失敗（authorize() 與按鈕均不可用）")
 
 
 def _focus_login_window(driver: webdriver.Chrome) -> None:
-    """Bring the Apple Music login UI to the foreground on macOS.
-
-    Shortcut launches via Terminal/app wrappers can leave the Chrome login window
-    visible but unfocused, which makes Apple ID fields appear untypeable. Focus
-    the browser window explicitly before waiting for the user to complete login.
-    """
+    """Bring the browser window to the foreground on macOS."""
     try:
         driver.execute_script(
             "window.focus(); if (document && document.body) { document.body.focus(); }"
@@ -193,85 +231,97 @@ def _focus_login_window(driver: webdriver.Chrome) -> None:
         pass
 
 
-def _wait_for_user_token(driver: webdriver.Chrome, timeout: int = 300) -> str | None:
-    """等待 Apple ID 登入完成並回傳 user token。
+_LOGIN_STEP_INSTRUCTIONS = {
+    "email": "請在瀏覽器中輸入 Apple ID 電子郵件 → 點擊「繼續」",
+    "password": "請輸入密碼 → 點擊「登入」",
+    "otp": "請輸入雙重認證驗證碼以完成登入",
+    "modal": "請在瀏覽器中完成登入流程",
+}
 
-    1. 偵測登入彈窗（新視窗）並切換過去讓用戶清楚看到
-    2. 等待彈窗關閉（用戶完成登入）
-    3. 切回主視窗後提取 user token
+
+def _wait_for_user_token(
+    driver: webdriver.Chrome, timeout: int = LOGIN_TIMEOUT
+) -> str | None:
+    """State-aware polling loop: detect login step changes and guide the user.
+
+    Replaces the old fixed grace period with continuous token polling + DOM
+    step detection (email → password → 2FA). Extends the deadline when real
+    progress is detected (step changes), up to LOGIN_HARD_DEADLINE.
     """
     main_window = driver.current_window_handle
     start = time.time()
-    inline_login_quiet_until: float | None = None
+    deadline = start + timeout
+    hard_deadline = start + LOGIN_HARD_DEADLINE
+    last_step: str | None = None
+    last_error: str | None = None
 
-    # ── 等待登入彈窗出現（最多 30 秒） ──
-    popup_handle = None
-    for _ in range(15):
-        handles = driver.window_handles
-        new_handles = [h for h in handles if h != main_window]
-        if new_handles:
-            popup_handle = new_handles[0]
-            break
-        time.sleep(2)
+    _focus_login_window(driver)
 
-    if popup_handle:
-        # 切至彈窗，讓用戶看到登入畫面
+    while time.time() < min(deadline, hard_deadline):
+        # ── popup window detection ──
         try:
-            driver.switch_to.window(popup_handle)
-            _focus_login_window(driver)
-            logger.info(f"Apple ID 登入視窗已開啟：{driver.current_url}")
+            handles = driver.window_handles
+            new_handles = [h for h in handles if h != main_window]
+            if new_handles:
+                popup = new_handles[0]
+                try:
+                    driver.switch_to.window(popup)
+                    _focus_login_window(driver)
+                    logger.info(f"Apple ID 登入視窗已開啟：{driver.current_url}")
+                except Exception:
+                    pass
+
+                while time.time() < min(deadline, hard_deadline):
+                    if popup not in driver.window_handles:
+                        logger.info("Apple ID 登入視窗已關閉")
+                        break
+                    time.sleep(2)
+
+                try:
+                    driver.switch_to.window(main_window)
+                except Exception:
+                    pass
         except Exception:
             pass
 
-        # 等待彈窗關閉（用戶完成登入）
-        while time.time() - start < timeout:
-            if popup_handle not in driver.window_handles:
-                logger.info("Apple ID 登入視窗已關閉")
-                break
-            elapsed = int(time.time() - start)
-            if elapsed > 0 and elapsed % 30 == 0:
-                logger.info(f"等待登入中... ({elapsed}s)")
-            time.sleep(2)
-
-        # 切回主視窗
+        # ── token + login state probe ──
         try:
-            driver.switch_to.window(main_window)
+            info = driver.execute_script(_LOGIN_STATE_JS)
         except Exception:
-            pass
-    else:
-        # 行內登入（modal overlay）：無新視窗，直接等待 token
-        _focus_login_window(driver)
-        inline_login_quiet_until = time.time() + INLINE_LOGIN_INPUT_GRACE_PERIOD
-        logger.info("偵測到行內登入 modal，請在瀏覽器中完成登入")
-        logger.info(
-            "暫停 token 輪詢 %s 秒，避免干擾密碼與驗證碼輸入",
-            INLINE_LOGIN_INPUT_GRACE_PERIOD,
-        )
-
-    # ── 等待 token 寫入 MusicKit（行內登入或 popup 後） ──
-    # 用戶完成登入後 MusicKit 異步寫入 token，持續輪詢直到取得或逾時
-    while time.time() - start < timeout:
-        if (
-            inline_login_quiet_until is not None
-            and time.time() < inline_login_quiet_until
-        ):
-            elapsed = int(time.time() - start)
-            if elapsed > 0 and elapsed % 30 == 0:
-                logger.info(f"等待使用者完成行內登入... ({elapsed}s)")
-            time.sleep(3)
+            time.sleep(1.5)
             continue
 
-        try:
-            result = driver.execute_script(_EXTRACT_TOKENS_JS)
-            if result and result.get("userToken"):
-                return result["userToken"]
-        except Exception:
-            pass
+        if info and info.get("userToken"):
+            return info["userToken"]
+
+        # ── detect login step and guide user ──
+        step = info.get("step") if info else None
+        if step and step != last_step:
+            instruction = _LOGIN_STEP_INSTRUCTIONS.get(step)
+            if instruction:
+                print(f"\n  🔑 {instruction}")
+            last_step = step
+            deadline = max(deadline, time.time() + LOGIN_PROGRESS_EXTEND)
+            logger.info(f"登入步驟變更：{step}")
+
+        error_hint = info.get("errorHint") if info else None
+        if error_hint and error_hint != last_error:
+            logger.warning(f"登入頁面顯示錯誤：{error_hint}")
+            last_error = error_hint
 
         elapsed = int(time.time() - start)
         if elapsed > 0 and elapsed % 30 == 0:
-            logger.info(f"等待登入完成... ({elapsed}s)")
-        time.sleep(3)
+            logger.info(f"等待登入中... ({elapsed}s)")
+
+        time.sleep(1.5)
+
+    # ── fallback: try extracting token one last time via original JS ──
+    try:
+        result = driver.execute_script(_EXTRACT_TOKENS_JS)
+        if result and result.get("userToken"):
+            return result["userToken"]
+    except Exception:
+        pass
 
     logger.warning("等待登入逾時")
     return None
@@ -318,11 +368,12 @@ def get_tokens(driver: webdriver.Chrome) -> tuple[str, str] | tuple[None, None]:
         save_debug_screenshot(driver, "musickit_init")
         return None, None
 
-    # 嘗試取得兩個 token（已授權時立即可得）
     result = driver.execute_script(_EXTRACT_TOKENS_JS)
     if result and result.get("devToken") and result.get("userToken"):
-        logger.info("Apple Music session 有效，直接取得 token")
-        return result["devToken"], result["userToken"]
+        if _validate_session(result["devToken"], result["userToken"]):
+            logger.info("Apple Music session 有效，直接取得 token")
+            return result["devToken"], result["userToken"]
+        logger.warning("Session token 存在但 API 驗證失敗，需重新登入")
 
     dev_token = result.get("devToken") if result else None
     if not dev_token:
@@ -335,14 +386,15 @@ def get_tokens(driver: webdriver.Chrome) -> tuple[str, str] | tuple[None, None]:
             f" 請在終端手動執行一次並完成授權，或設定 {ALLOW_INTERACTIVE_LOGIN_ENV}=1 覆寫。"
         )
 
-    # 未授權：點擊 Sign In 按鈕觸發 Apple ID 登入
-    logger.info("尚未授權，嘗試點擊 Sign In 按鈕...")
+    # 未授權：觸發 Apple ID 登入（優先 MusicKit.authorize()）
+    logger.info("尚未授權，觸發 Apple ID 登入...")
     print("\n" + "=" * 60)
-    print("  請在彈出的視窗中登入 Apple ID")
+    print("  請在瀏覽器中完成 Apple ID 登入")
+    print("  （輸入 Email → 密碼 → 雙重認證碼）")
     print("  完成後程式將自動繼續")
     print("=" * 60 + "\n")
 
-    _click_sign_in(driver)
+    _trigger_auth(driver)
 
     # 等待用戶完成登入
     user_token = _wait_for_user_token(driver)
@@ -363,6 +415,21 @@ def _make_headers(dev_token: str, user_token: str) -> dict[str, str]:
         "Authorization": f"Bearer {dev_token}",
         "Music-User-Token": user_token,
     }
+
+
+def _validate_session(dev_token: str, user_token: str) -> bool:
+    """Verify tokens are usable via a lightweight API call."""
+    try:
+        resp = httpx.get(
+            f"{APPLE_MUSIC_BASE}/v1/me/library/playlists",
+            params={"limit": 1},
+            headers=_make_headers(dev_token, user_token),
+            timeout=10,
+        )
+        return resp.status_code == 200
+    except Exception as e:
+        logger.debug(f"Session validation failed: {e}")
+        return False
 
 
 def get_storefront(dev_token: str, user_token: str) -> str:

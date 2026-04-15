@@ -167,6 +167,7 @@ music-collector/
 ├── pyproject.toml                  # Settings & pip requirements
 ├── .env.example                    # Environment variable templates
 ├── run.sh                          # CLI manual execution macro
+├── run-scheduled.sh                # Daily schedule wrapper (crawl + Spotify + Apple Music)
 ├── auth.py                         # Single-use Spotify OAuth authenticator
 ├── Dockerfile                      # Docker Build directives
 ├── docker-compose.yml              # Standardized services
@@ -246,9 +247,9 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 
 This binds an automatic timer executing around 09:00 locally every day. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
 
-The scheduled LaunchAgent intentionally runs the **crawler + Spotify pipeline only**. Apple Music sync remains a manual command because Apple may require an interactive sign-in at any time. If `--apple-music` is run from a non-interactive environment and the saved Apple session is no longer valid, the program now skips Apple Music sync immediately with a clear warning instead of waiting for the login timeout.
+The scheduled LaunchAgent runs the **full pipeline including Apple Music sync**. The flow is: crawl → Spotify → Apple Music → LINE notification. If the saved Apple Music session is still valid, sync happens silently. If Apple requires re-authentication, the sync is skipped immediately and a **LINE notification** is sent with recovery instructions — no blocking, no timeout.
 
-When that happens, the recommended path is `./apple-music-tools.command`, which lets you choose Login / Recovery / Sync from one menu. You can still use the lower-level scripts directly when you need finer control.
+When that happens, double-click `./apple-music-tools.command` to complete Apple login; the next scheduled run will automatically sync.
 
 Additional manual recovery tools:
 - `./apple-music-tools.command`: unified Apple Music tools menu for Login / Recovery / Sync (**recommended**)
@@ -476,6 +477,7 @@ music-collector/
 ├── pyproject.toml                  # 專案設定與依賴
 ├── .env.example                    # 環境變數範本
 ├── run.sh                          # 手動執行腳本
+├── run-scheduled.sh                # 每日排程腳本（擷取 + Spotify + Apple Music）
 ├── auth.py                         # Spotify OAuth 一次性授權工具
 ├── Dockerfile                      # Docker 容器化
 ├── docker-compose.yml              # Docker Compose 設定
@@ -555,11 +557,11 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 
 預設每日 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
 
-目前 LaunchAgent 刻意只執行 **爬蟲 + Spotify 流程**，不會自動觸發 Apple Music 同步。原因是 Apple 可能隨時要求互動式重新登入；若在非互動環境中執行 `--apple-music` 且既有 session 已失效，程式現在會立即略過 Apple Music 同步並輸出明確警告，而不是等待登入逾時。
+LaunchAgent 執行**完整流程，包含 Apple Music 同步**：擷取 → Spotify → Apple Music → LINE 通知。若既有 Apple Music session 仍有效，同步會靜默完成；若 Apple 要求重新登入，程式會立即略過同步並透過 **LINE 通知**提醒你手動登入 — 不會阻塞、不會逾時。
 
-若遇到這種情況，建議直接使用 `./apple-music-tools.command`，在同一個選單中選擇 Login / Recovery / Sync。若需要更細的手動控制，仍可直接執行 `./bootstrap-apple-music-login.sh`、`./recover-apple-music-sync.sh` 或 `./sync-apple-music.sh`。
+收到通知後，雙擊 `./apple-music-tools.command` 完成 Apple 登入即可，下次排程會自動同步。
 
-另外也提供下列入口：
+另外也提供下列手動入口：
 - `./apple-music-tools.command`：統一入口，可在同一個選單中選擇 Login / Recovery / Sync（**建議**）
 - `./recover-apple-music-sync.command`：雙擊後會先開正常 Chrome 讓你登入，先驗證 session 可用，再接續同步
 - `./bootstrap-apple-music-login.command`：可從 Finder 直接雙擊，先開正常 Chrome 登入 Apple
