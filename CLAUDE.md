@@ -96,9 +96,9 @@ docker compose run collector --dry-run
 | SPIN | HTML | `/new-music/` 頁面，typographic 引號匹配 + 動詞短語分離 |
 | Consequence | HTML | 引號提取曲名 + `_extract_artist_from_prefix()` 動詞邊界偵測 |
 | Line of Best Fit | HTML | 所有格 `'s` 優先策略 + 擴展動詞清單 |
-| Rolling Stone | HTML | 二階段：索引頁篩選推薦文章 → 文章頁提取曲目 |
-| Slant | HTML | 引號提取 + JS/Cloudflare 偵測 |
-| Complex | HTML | 多 URL 嘗試 + JS 偵測 + Playwright fallback |
+| Rolling Stone | HTML | 二階段：索引頁多頁掃描（≤3 頁）+ URL slug 匹配 → 文章頁提取曲目 |
+| Slant | HTML | 引號提取 + Review 標題過濾 + JS/Cloudflare 偵測 |
+| Complex | HTML | `/music` + `/tag/best-new-music` + JS 偵測 + Playwright fallback |
 | Resident Advisor | HTML | Next.js 偵測 + Playwright fallback |
 | Gorilla vs. Bear | RSS | feedparser + mp3/video/on-blast 分類過濾 |
 | Bandcamp Daily | RSS | feedparser + Album of the Day 分類 + 逗號分隔解析 |

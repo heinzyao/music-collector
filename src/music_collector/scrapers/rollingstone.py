@@ -18,29 +18,52 @@ from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
 
-# 音樂新聞與特輯索引頁
-URLS = [
+# 音樂新聞與特輯索引頁（基礎 URL，會自動掃描多頁）
+_BASE_URLS = [
     "https://www.rollingstone.com/music/music-news/",
     "https://www.rollingstone.com/music/music-features/",
 ]
 
+# 掃描頁數上限（推薦文章可能出現在 page 2-5）
+_MAX_PAGES = 3
+
 # 推薦類文章關鍵詞 — 標題或 URL 須包含至少一個
 _RECOMMEND_KEYWORDS = [
-    "best new song", "best new track", "best new music",
-    "song you need", "songs you need",
-    "song of the week", "track of the week",
-    "need to hear", "need to know",
-    "songs this week", "tracks this week",
-    "songs right now", "tracks right now",
-    "premiere", "first listen",
+    "best new song",
+    "best new track",
+    "best new music",
+    "song you need",
+    "songs you need",
+    "song of the week",
+    "track of the week",
+    "need to hear",
+    "need to know",
+    "songs this week",
+    "tracks this week",
+    "songs right now",
+    "tracks right now",
+    "premiere",
+    "first listen",
 ]
 
 # 年度回顧 / 排行榜關鍵詞
 _RECAP_KEYWORDS = [
-    "best of", "best songs of", "best albums of", "best tracks of",
-    "top 100", "top 50", "top 25", "top 10",
-    "ranked", "ranking", "of the year", "of the decade",
-    "year in review", "year-end", "greatest", "all time",
+    "best of",
+    "best songs of",
+    "best albums of",
+    "best tracks of",
+    "top 100",
+    "top 50",
+    "top 25",
+    "top 10",
+    "ranked",
+    "ranking",
+    "of the year",
+    "of the decade",
+    "year in review",
+    "year-end",
+    "greatest",
+    "all time",
 ]
 
 
@@ -50,15 +73,21 @@ class RollingStoneScraper(BaseScraper):
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []
 
-        for url in URLS:
-            try:
-                resp = self._get(url)
-            except Exception as e:
-                logger.warning(f"Rolling Stone：索引頁擷取失敗 {url}: {e}")
-                continue
+        for base_url in _BASE_URLS:
+            for page in range(1, _MAX_PAGES + 1):
+                url = base_url if page == 1 else f"{base_url}page/{page}/"
+                try:
+                    resp = self._get(url)
+                except Exception as e:
+                    logger.warning(f"Rolling Stone：索引頁擷取失敗 {url}: {e}")
+                    break
 
-            soup = BeautifulSoup(resp.text, "lxml")
-            tracks.extend(self._scan_index(soup))
+                soup = BeautifulSoup(resp.text, "lxml")
+                new_tracks = self._scan_index(soup)
+                tracks.extend(new_tracks)
+
+                if len(tracks) >= MAX_TRACKS_PER_SOURCE:
+                    break
 
             if len(tracks) >= MAX_TRACKS_PER_SOURCE:
                 break
@@ -82,14 +111,19 @@ class RollingStoneScraper(BaseScraper):
                 continue
 
             # 必須是推薦類文章（標題或 URL 包含推薦關鍵詞）
-            if not any(kw in text_lower or kw.replace(" ", "-") in href_lower
-                       for kw in _RECOMMEND_KEYWORDS):
+            is_recommend = any(
+                kw in text_lower or kw.replace(" ", "-") in href_lower
+                for kw in _RECOMMEND_KEYWORDS
+            )
+            if not is_recommend and "songs-you-need" not in href_lower:
                 continue
 
             # 嘗試直接從標題提取單首推薦
             parsed = self._parse_recommendation_headline(text)
             if parsed:
-                tracks.append(Track(artist=parsed[0], title=parsed[1], source=self.name))
+                tracks.append(
+                    Track(artist=parsed[0], title=parsed[1], source=self.name)
+                )
                 continue
 
             # 彙整類文章（如「Best New Songs This Week」）→ 進入文章提取

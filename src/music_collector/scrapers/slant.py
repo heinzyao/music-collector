@@ -66,6 +66,10 @@ class SlantScraper(BaseScraper):
                 ):
                     continue
 
+                # 只處理樂評標題（含 "Review"），排除新聞類標題
+                if "review" not in text.lower():
+                    continue
+
                 parsed = self._parse_slant_title(text)
                 if parsed:
                     artist, title = parsed

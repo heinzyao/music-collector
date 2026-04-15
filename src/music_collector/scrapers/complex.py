@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 URLS = [
     "https://www.complex.com/music",
     "https://www.complex.com/tag/best-new-music",
-    "https://www.complex.com/pigeons-and-planes",
 ]
 
 
