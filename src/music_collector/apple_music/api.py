@@ -418,18 +418,23 @@ def _make_headers(dev_token: str, user_token: str) -> dict[str, str]:
 
 
 def _validate_session(dev_token: str, user_token: str) -> bool:
-    """Verify tokens are usable via a lightweight API call."""
-    try:
-        resp = httpx.get(
-            f"{APPLE_MUSIC_BASE}/v1/me/library/playlists",
-            params={"limit": 1},
-            headers=_make_headers(dev_token, user_token),
-            timeout=10,
-        )
-        return resp.status_code == 200
-    except Exception as e:
-        logger.debug(f"Session validation failed: {e}")
-        return False
+    """Verify tokens are usable via a lightweight API call (2 attempts for transient errors)."""
+    for attempt in range(2):
+        try:
+            resp = httpx.get(
+                f"{APPLE_MUSIC_BASE}/v1/me/library/playlists",
+                params={"limit": 1},
+                headers=_make_headers(dev_token, user_token),
+                timeout=10,
+            )
+            return resp.status_code == 200
+        except Exception as e:
+            if attempt == 0:
+                logger.debug(f"Session validation error, retrying: {e}")
+                time.sleep(2)
+            else:
+                logger.debug(f"Session validation failed: {e}")
+    return False
 
 
 def get_storefront(dev_token: str, user_token: str) -> str:

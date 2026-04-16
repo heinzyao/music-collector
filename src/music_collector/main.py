@@ -282,8 +282,21 @@ def check_apple_music_session() -> bool:
     """檢查目前 browser profile 是否已有可用的 Apple Music session。"""
     from .apple_music.api import _EXTRACT_TOKENS_JS
     from .apple_music.browser import create_driver
+    from selenium.common.exceptions import SessionNotCreatedException
 
-    driver = create_driver()
+    try:
+        driver = create_driver()
+    except SessionNotCreatedException as e:
+        msg = str(e)
+        if "exited" in msg or "profile" in msg.lower() or "SingletonLock" in msg:
+            print(
+                "\n[錯誤] Chrome 無法啟動：browser profile 已被另一個 Chrome 視窗佔用。\n"
+                "請先完全關閉 Chrome（Cmd+Q），再重新執行驗證步驟。\n"
+            )
+        else:
+            print(f"\n[錯誤] Chrome 無法啟動：{e}\n")
+        return False
+
     try:
         logger.info("檢查 Apple Music session 是否可用...")
         driver.get("https://music.apple.com/")

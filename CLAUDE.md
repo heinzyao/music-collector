@@ -1,4 +1,6 @@
-# Music Collector — 專案指引
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 專案概述
 
@@ -16,12 +18,6 @@ uv sync --extra browser
 # 安裝含測試工具
 uv sync --extra test
 
-# 安裝含 Web 介面
-uv sync --extra web
-
-# 安裝所有可選依賴
-uv sync --all-extras
-
 # 乾跑測試（不需 Spotify 憑證）
 ./run.sh --dry-run
 
@@ -31,37 +27,20 @@ uv sync --all-extras
 # 查看近期蒐集紀錄
 ./run.sh --recent 7
 
-# 檢視備份（列出所有 / 指定季度）
-./run.sh --backup
-./run.sh --backup Q1
+# 執行測試（全部）
+PYTHONPATH=src uv run pytest tests/ -q
 
-# 匯出備份供 Apple Music 匯入
-./run.sh --export Q1              # 匯出為 CSV
-./run.sh --export Q1 --format txt # 匯出為純文字
-./run.sh --export Q1 --all        # 包含未在 Spotify 找到的曲目
+# 執行單一測試檔案
+PYTHONPATH=src uv run pytest tests/test_apple_music_api.py -v
 
-# 輸出 Spotify 播放清單連結（供轉換至 YouTube Music / Tidal）
-./run.sh --export-spotify-url
+# 執行單一測試
+PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_session_retries -v
 
-# 完整執行 + Apple Music 同步（擷取 → Spotify → Apple Music）
-./run.sh --import Q1
+# Apple Music 同步（手動，互動環境）
+./sync-apple-music.sh
 
-# 資料分析
-./run.sh --stats              # 總覽
-./run.sh --stats overlap      # 跨來源重疊分析
-./run.sh --stats sources      # 各來源效能比較
-
-# Web 介面
-./run.sh --web
-
-# 清除歌單與資料庫，重新蒐集
-./run.sh --reset
-
-# 執行測試
-PYTHONPATH=src uv run pytest tests/ -v
-
-# Docker 執行
-docker compose run collector --dry-run
+# Apple Music Session 恢復（首次登入或 session 過期）
+./recover-apple-music-sync.sh
 ```
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`。
@@ -73,17 +52,17 @@ docker compose run collector --dry-run
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
-- `src/music_collector/export.py` — 匯出為 CSV/TXT（`export_combined_spotify()` 合併主歌單 + 歸檔歌單並去重匯出，供 `--apple-music` 使用；`export_from_spotify()` 僅匯出主歌單；舊函式 `export_csv()`/`export_playlist()` 從備份 JSON 讀取）+ Spotify URL 匯出
+- `src/music_collector/export.py` — 匯出為 CSV/TXT；`export_combined_spotify()` 合併主歌單 + 歸檔歌單並去重匯出，供 Apple Music 使用
 - `src/music_collector/apple_music/` — Apple Music 自動匯入（模組化套件）
   - `api.py` — **主要入口**：直接呼叫 Apple Music REST API（搜尋曲目、建立/刪除播放清單、分批加入曲目）
-  - `browser.py` — Chrome driver 建立與反偵測措施
-  - `playlist.py` — 播放清單管理（MusicKit JS API + AppleScript）
-  - `transfer.py` — TuneMyMusic 自動化轉移（備援方案，含 Premium 付費牆偵測修正）
+  - `browser.py` — Chrome driver 建立與反偵測措施，`create_driver()` 使用持久化 `data/browser_profile/`
+  - `playlist.py` — 播放清單管理（MusicKit JS API + AppleScript fallback）
+  - `transfer.py` — TuneMyMusic 自動化轉移（備援方案，不在日常排程中使用）
 - `src/music_collector/tunemymusic.py` — 向後相容，重新匯出 `apple_music` 套件
 - `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
-- `src/music_collector/main.py` — 主流程與 CLI（13 個擷取器透過 `asyncio.gather` 並行執行）
+- `src/music_collector/main.py` — 主流程與 CLI
 - `tests/` — 90 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
@@ -118,15 +97,6 @@ docker compose run collector --dry-run
 4. 在 `tests/scrapers/` 新增對應測試
 5. 用 `--dry-run` 測試
 
-## Playwright 瀏覽器渲染
-
-用於 JS 重度渲染網站（Complex、Resident Advisor）：
-
-1. 安裝：`uv sync --extra browser && uv run playwright install chromium`
-2. 啟用：在 `.env` 設定 `ENABLE_PLAYWRIGHT=true`
-3. 行為：httpx 請求失敗時自動 fallback 至 Playwright headless 瀏覽器
-4. 未安裝/未啟用時靜默跳過，不影響其他來源
-
 ## Apple Music 直接 API 匯入
 
 ### 流程架構（`api.py`）
@@ -137,51 +107,76 @@ docker compose run collector --dry-run
 → 刪除同名舊歌單 → 建立新播放清單 → 分批 POST 加入曲目（每批 ≤300）
 ```
 
-- 不依賴任何第三方轉換服務，直接透過 `https://api.music.apple.com` 呼叫
-- Token 從 `MusicKit.getInstance().developerToken` / `.musicUserToken` 提取
-- 加入曲目使用 `POST /v1/me/library/playlists/{id}/tracks`，回傳 204 No Content 視為成功
-
-### Token 取得
+### Token 取得與 Session 驗證
 
 1. Selenium 開啟 `music.apple.com`，等待 MusicKit JS 初始化（約 5–10 秒）
-2. 若已授權（`isAuthorized === true`），直接讀取 `developerToken` + `musicUserToken`
-3. 若未授權，JS 點擊 Sign In 按鈕（Svelte class `button.signin`），等待 Apple ID 登入彈窗關閉，輪詢 token 寫入
+2. 若找到 devToken + userToken，呼叫 `_validate_session()`（最多 2 次重試，防止暫時網路錯誤誤判）
+3. 若 session 有效直接回傳；若無效，檢查 `_interactive_login_allowed()`
+4. 非互動環境（launchd 排程）→ 立即拋出 `AppleMusicAuthRequiredError`，**不等待登入**
+5. 互動環境 → 觸發 Apple ID 登入並等待完成
 
-### 搜尋策略
+### 非互動環境偵測
 
-- 兩輪查詢：`"{title} {artist}"` 及 `"{artist} {title}"`
-- 藝人 + 曲名雙重驗證（`_is_match` 子字串包含）
-- 間隔 0.15 秒避免 rate limit
+`_interactive_login_allowed()` 檢查三個 stdio stream 是否全為 TTY。排程環境（launchd 將 stdio 重導至 log 檔）回傳 False，立即跳過同步並發送 LINE 通知，不阻塞排程。可用 `MUSIC_COLLECTOR_ALLOW_INTERACTIVE_APPLE_LOGIN=1` 覆寫。
 
 ### 反偵測措施
 
 MusicKit JS 會偵測無痕模式。`browser.py` 中的防護：
 
 - `Page.addScriptToEvaluateOnNewDocument` 注入反偵測腳本
-- `navigator.storage.estimate` quota 偽裝
+- `navigator.storage.estimate` quota 偽裝（無痕模式 <120MB，正常模式 >1GB）
+- 攔截 `MusicKit.configure` 保存 developer token 至 `localStorage`
 - 持久化 `data/browser_profile/` 保存登入狀態（不可推送至 Git）
 
 ### 已知限制
 
-- 首次使用需手動完成 Apple ID 登入（約 30 秒）
+- 首次使用需手動完成 Apple ID 登入（透過 `./recover-apple-music-sync.sh`）
 - Apple Music API 每次 POST 最多加入 300 首，超過需分批
 - `data/browser_profile/` 儲存 Chrome profile（不可推送至 Git）
 
-## TuneMyMusic 備援方案（`transfer.py`）
+## Apple Music Session 恢復流程
 
-`transfer.py` 保留作為備援，使用 Selenium 自動化 TuneMyMusic UI。注意：
+Session 過期時，排程會自動跳過並發 LINE 通知。手動恢復步驟：
 
-- TuneMyMusic 免費方案需要 Premium 才能轉移至 Apple Music
-- Premium 付費牆偵測：`//button[contains(text(), 'Premium') and contains(text(), 'Transfer')]`
-- `import_to_apple_music()` 目前由 `api.py` 提供（`__init__.py` 匯入 `api.py`）
+```bash
+./recover-apple-music-sync.sh
+```
+
+流程：
+1. 以共享 profile（`data/browser_profile/`）開啟 Chrome → 使用者完成 Apple ID 登入
+2. 使用者按 Enter → 腳本從 `SingletonLock` 讀取 PID，自動 kill bootstrap Chrome，清除 lock 檔（`SingletonLock` / `SingletonCookie` / `SingletonSocket`）
+3. 開啟新 Chrome 驗證 session（`--check-apple-music-session`）
+4. 驗證通過 → 執行完整同步（`./sync-apple-music.sh`）
+
+**注意**：不可同時有兩個 Chrome 使用相同 `data/browser_profile/`，否則會出現 `SessionNotCreatedException: Chrome instance exited`。`recover-apple-music-sync.sh` 已自動處理此情境。
 
 ## 自動排程（launchd）
 
-### 設定檔
+### 排程設定
 
-- 專案內：`com.music-collector.plist`
+- 專案內：`com.music-collector.plist`（以 `run-scheduled.sh` 為入口）
 - 安裝位置：`~/Library/LaunchAgents/com.music-collector.plist`
 - 每日 09:00 執行，log 輸出至 `data/collector.log`
+
+**重要**：專案內的 plist 與安裝的 plist 必須保持一致。更新後須重新安裝：
+
+```bash
+cp com.music-collector.plist ~/Library/LaunchAgents/
+launchctl unload ~/Library/LaunchAgents/com.music-collector.plist
+launchctl load ~/Library/LaunchAgents/com.music-collector.plist
+```
+
+### 執行流程（`run-scheduled.sh`）
+
+```bash
+# Step 1：擷取 → Spotify → 備份 → 通知
+PYTHONPATH=src uv run python -m music_collector
+
+# Step 2：Apple Music 同步（session 有效時靜默執行，過期時發通知跳過）
+PYTHONPATH=src uv run python -m music_collector --apple-music || true
+```
+
+排程使用兩段式：Spotify 先完成後才進行 Apple Music，確保 Apple Music 匯出包含最新曲目。Apple Music 失敗不影響整體排程（`|| true`）。
 
 ### 排程指令
 
@@ -199,19 +194,6 @@ launchctl list | grep music-collector
 # 手動觸發（測試用）
 launchctl start com.music-collector
 ```
-
-### 執行流程（`run(sync_apple_music=True)`）
-
-排程使用 `--apple-music` 旗標，`--import` 亦觸發相同流程。執行順序嚴格保證 **Spotify 先完成，再進行 Apple Music**：
-
-```
-1. 擷取新曲目（13 個來源）
-2. Spotify 更新（僅有新曲目時）：搜尋 → 加入歌單 → 備份
-3. Apple Music 匯入（無論是否有新曲目都執行）：從 Spotify API 合併匯出 CSV（主歌單 + 歸檔歌單，去重後全量匯出） → Apple Music REST API 直接匯入
-4. 發送通知
-```
-
-Apple Music 匯入與新曲目解耦，確保即使當天無新曲目，前次失敗的匯入仍會重試。
 
 ## 注意事項
 
