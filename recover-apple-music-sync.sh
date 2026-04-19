@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
-# Music Collector — Apple Music 兩段式恢復流程
+# Music Collector — Apple Music Token 取得與同步
+#
+# 新流程（不使用 Selenium 或 osascript token 擷取）：
+#   1. 從 music.apple.com 取得 Developer Token
+#   2. 啟動本機 HTTP 授權頁面（localhost:8765）
+#   3. 開啟真實瀏覽器，使用者點擊授權按鈕完成 Apple ID 登入
+#   4. MusicKit.authorize() 在真實瀏覽器中執行（無 bot 偵測問題）
+#   5. Token 儲存至 data/apple_music_tokens.json
+#   6. 執行完整同步
+#
 # 用法：
 #   ./recover-apple-music-sync.sh
 
@@ -8,70 +17,31 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 SUMMARY_LOG="$(pwd)/data/apple_music_recovery.log"
-PROFILE_DIR="$(pwd)/data/browser_profile"
 mkdir -p "$(dirname "$SUMMARY_LOG")"
 
 log_summary() {
   printf "%s %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$1" | tee -a "$SUMMARY_LOG"
 }
 
-# 關閉佔用 browser profile 的 Chrome 進程（從 SingletonLock 讀取 PID）
-close_bootstrap_chrome() {
-  local singleton="$PROFILE_DIR/SingletonLock"
-  if [ ! -L "$singleton" ]; then
-    return 0
-  fi
-
-  local lock_target
-  lock_target=$(readlink "$singleton" 2>/dev/null || true)
-  local chrome_pid="${lock_target##*-}"
-
-  if [ -n "$chrome_pid" ] && kill -0 "$chrome_pid" 2>/dev/null; then
-    printf "Closing bootstrap Chrome (PID %s)...\n" "$chrome_pid"
-    kill "$chrome_pid" 2>/dev/null || true
-    sleep 2
-  fi
-
-  # 移除殘留 lock 檔（Chrome 退出後有時不清理）
-  rm -f "$PROFILE_DIR/SingletonLock" \
-        "$PROFILE_DIR/SingletonCookie" \
-        "$PROFILE_DIR/SingletonSocket" 2>/dev/null || true
-}
-
-printf "\n[1/3] Opening Apple Music login bootstrap...\n"
 log_summary "[INFO] Recovery flow started"
-./bootstrap-apple-music-login.sh
 
-printf "\n============================================================\n"
-printf "Apple Music login window has been opened in normal Chrome.\n"
-printf "1. Complete Apple login in that Chrome window.\n"
-printf "2. Return to THIS Terminal window and press Enter.\n"
-printf "   (The script will automatically close the Chrome window.)\n"
-printf "============================================================\n"
-printf "\nPress Enter after completing Apple login..."
-read -r _
+printf "\n[1/2] Starting Apple Music authorization (local auth server)...\n\n"
 
-printf "\nClosing bootstrap Chrome and cleaning up profile locks...\n"
-close_bootstrap_chrome
-sleep 1
-
-printf "\n[2/3] Validating shared Apple Music session...\n"
-if ! PYTHONPATH=src uv run python -m music_collector --check-apple-music-session; then
-  log_summary "[WARN] Session validation failed"
-  printf "\nApple Music session is still not ready.\n"
-  printf "Please confirm that you completed login in the normal Chrome window,\n"
-  printf "then run Music Collector Apple Music Recovery.app again.\n"
+if PYTHONPATH=src uv run python -m music_collector.apple_music.auth_server; then
+  log_summary "[INFO] Apple Music token obtained successfully"
+else
+  log_summary "[ERROR] Failed to obtain Apple Music token"
+  printf "\n[ERROR] 授權未完成，無法取得 Token。\n"
+  printf "        請重試，並確認在授權頁面點擊「授權 Apple Music」後完成 Apple ID 登入。\n"
   exit 1
 fi
 
-log_summary "[INFO] Session validation passed"
-printf "\n[3/3] Session looks good. Starting Apple Music sync...\n"
+printf "\n[2/2] Starting Apple Music sync...\n\n"
 if ./sync-apple-music.sh; then
   log_summary "[INFO] Apple Music sync completed successfully"
   printf "\nRecovery flow completed successfully.\n"
 else
   log_summary "[ERROR] Apple Music sync failed"
-  printf "\nRecovery flow finished, but Apple Music sync failed.\n"
-  printf "Please review the Terminal output above for the exact sync error.\n"
+  printf "\nSync failed. Please review the output above for details.\n"
   exit 1
 fi

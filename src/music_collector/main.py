@@ -279,42 +279,16 @@ def show_recent(days: int = 7) -> None:
 
 
 def check_apple_music_session() -> bool:
-    """檢查目前 browser profile 是否已有可用的 Apple Music session。"""
-    from .apple_music.api import _EXTRACT_TOKENS_JS
-    from .apple_music.browser import create_driver
-    from selenium.common.exceptions import SessionNotCreatedException
+    """檢查 token 檔案是否存在且通過 API 驗證。"""
+    from .apple_music.api import _load_token_file, _validate_session
 
-    try:
-        driver = create_driver()
-    except SessionNotCreatedException as e:
-        msg = str(e)
-        if "exited" in msg or "profile" in msg.lower() or "SingletonLock" in msg:
-            print(
-                "\n[錯誤] Chrome 無法啟動：browser profile 已被另一個 Chrome 視窗佔用。\n"
-                "請先完全關閉 Chrome（Cmd+Q），再重新執行驗證步驟。\n"
-            )
-        else:
-            print(f"\n[錯誤] Chrome 無法啟動：{e}\n")
+    dev_token, user_token = _load_token_file()
+    if not dev_token or not user_token:
+        logger.warning("Apple Music token 檔案不存在或已過期")
         return False
 
-    try:
-        logger.info("檢查 Apple Music session 是否可用...")
-        driver.get("https://music.apple.com/")
-
-        for _ in range(20):
-            time.sleep(2)
-            try:
-                result = driver.execute_script(_EXTRACT_TOKENS_JS)
-                if result and result.get("devToken") and result.get("userToken"):
-                    logger.info("Apple Music session 可用")
-                    return True
-            except Exception:
-                pass
-
-        logger.warning("Apple Music session 尚未就緒")
-        return False
-    finally:
-        driver.quit()
+    logger.info("Token 檔案存在，執行 API 驗證...")
+    return _validate_session(dev_token, user_token)
 
 
 def sync_current_playlist_to_apple_music() -> bool:
@@ -420,7 +394,7 @@ def main() -> None:
     parser.add_argument(
         "--apple-music",
         action="store_true",
-        help="在蒐集完成後，自動將新歌單同步至 Apple Music（需使用瀏覽器）",
+        help="在蒐集完成後，自動將新歌單同步至 Apple Music（需先執行 recover-apple-music-sync.sh 取得 token）",
     )
     parser.add_argument(
         "--check-apple-music-session",

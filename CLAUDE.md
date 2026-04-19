@@ -102,37 +102,39 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 ### 流程架構（`api.py`）
 
 ```
-讀取 CSV → Selenium 開啟 music.apple.com → 提取 MusicKit token
+讀取 data/apple_music_tokens.json
+→ _validate_session()（輕量 API 驗證）
 → 逐一搜尋 (artist, title) → 取得 catalog track ID
 → 刪除同名舊歌單 → 建立新播放清單 → 分批 POST 加入曲目（每批 ≤300）
 ```
 
-### Token 取得與 Session 驗證
+`api.py` 不含任何 Selenium 或瀏覽器自動化。所有 API 呼叫均為純 `httpx` REST 請求。
 
-1. Selenium 開啟 `music.apple.com`，等待 MusicKit JS 初始化（約 5–10 秒）
-2. 若找到 devToken + userToken，呼叫 `_validate_session()`（最多 2 次重試，防止暫時網路錯誤誤判）
-3. 若 session 有效直接回傳；若無效，檢查 `_interactive_login_allowed()`
-4. 非互動環境（launchd 排程）→ 立即拋出 `AppleMusicAuthRequiredError`，**不等待登入**
-5. 互動環境 → 觸發 Apple ID 登入並等待完成
+### Token 取得（`auth_server.py`）
+
+`auth_server.py` 實作本機 MusicKit 授權伺服器：
+
+1. 從 `music.apple.com` Vite JS bundle 提取 `developerToken`（無需登入）
+2. 啟動 `localhost:8765` HTTP 伺服器，提供授權頁面
+3. `open` 開啟**真實 Chrome**（非 Selenium，無 bot 偵測問題）
+4. 使用者點擊「授權 Apple Music」→ `MusicKit.authorize()` 觸發 Apple ID 登入
+5. 授權完成後頁面 POST token 至本機伺服器，儲存至 `data/apple_music_tokens.json`
+
+### Token 驗證
+
+- `_load_token_file()`：讀取 token 檔，超過 `TOKEN_FILE_MAX_AGE_HOURS`（23 小時）視為過期
+- `_validate_session()`：打 `GET /v1/me/library/playlists` 驗證（最多 2 次重試）
+- Token 無效 → 拋出 `AppleMusicAuthRequiredError`，排程自動跳過並發 LINE 通知
 
 ### 非互動環境偵測
 
-`_interactive_login_allowed()` 檢查三個 stdio stream 是否全為 TTY。排程環境（launchd 將 stdio 重導至 log 檔）回傳 False，立即跳過同步並發送 LINE 通知，不阻塞排程。可用 `MUSIC_COLLECTOR_ALLOW_INTERACTIVE_APPLE_LOGIN=1` 覆寫。
-
-### 反偵測措施
-
-MusicKit JS 會偵測無痕模式。`browser.py` 中的防護：
-
-- `Page.addScriptToEvaluateOnNewDocument` 注入反偵測腳本
-- `navigator.storage.estimate` quota 偽裝（無痕模式 <120MB，正常模式 >1GB）
-- 攔截 `MusicKit.configure` 保存 developer token 至 `localStorage`
-- 持久化 `data/browser_profile/` 保存登入狀態（不可推送至 Git）
+`_interactive_login_allowed()` 檢查三個 stdio stream 是否全為 TTY。排程環境（launchd 將 stdio 重導至 log 檔）回傳 False，立即拋出 `AppleMusicAuthRequiredError`，不阻塞排程。可用 `MUSIC_COLLECTOR_ALLOW_INTERACTIVE_APPLE_LOGIN=1` 覆寫。
 
 ### 已知限制
 
-- 首次使用需手動完成 Apple ID 登入（透過 `./recover-apple-music-sync.sh`）
+- Token 有效期約 23 小時，到期需重新執行 `./recover-apple-music-sync.sh`
 - Apple Music API 每次 POST 最多加入 300 首，超過需分批
-- `data/browser_profile/` 儲存 Chrome profile（不可推送至 Git）
+- `data/apple_music_tokens.json` 含敏感 token，不可推送至 Git
 
 ## Apple Music Session 恢復流程
 
@@ -143,12 +145,11 @@ Session 過期時，排程會自動跳過並發 LINE 通知。手動恢復步驟
 ```
 
 流程：
-1. 以共享 profile（`data/browser_profile/`）開啟 Chrome → 使用者完成 Apple ID 登入
-2. 使用者按 Enter → 腳本從 `SingletonLock` 讀取 PID，自動 kill bootstrap Chrome，清除 lock 檔（`SingletonLock` / `SingletonCookie` / `SingletonSocket`）
-3. 開啟新 Chrome 驗證 session（`--check-apple-music-session`）
-4. 驗證通過 → 執行完整同步（`./sync-apple-music.sh`）
-
-**注意**：不可同時有兩個 Chrome 使用相同 `data/browser_profile/`，否則會出現 `SessionNotCreatedException: Chrome instance exited`。`recover-apple-music-sync.sh` 已自動處理此情境。
+1. `auth_server.py` 從 Apple Music bundle 取得 `developerToken`
+2. 啟動 `localhost:8765` 授權頁面，自動開啟真實 Chrome
+3. 使用者點擊「授權 Apple Music」→ 完成 Apple ID 登入（Email → 密碼 → 2FA）
+4. Token 儲存至 `data/apple_music_tokens.json`
+5. 自動執行完整同步（`./sync-apple-music.sh`）
 
 ## 自動排程（launchd）
 
