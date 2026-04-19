@@ -54,13 +54,13 @@ end tell
 _TRIGGER_JS = """(function(){
   try {
     var mk = MusicKit.getInstance();
-    if (!mk) return "no_instance";
-    if (mk.isAuthorized && mk.musicUserToken) return "already_authorized";
+    if (!mk) return 'no_instance';
+    if (mk.isAuthorized && mk.musicUserToken) return 'already_authorized';
     mk.authorize()
       .then(function(t){ window.__mc_token = t; })
       .catch(function(e){ window.__mc_error = String(e); });
-    return "triggered";
-  } catch(e) { return "error:" + String(e); }
+    return 'triggered';
+  } catch(e) { return 'error:' + String(e); }
 })()"""
 
 _EXTRACT_JS = """(function(){
@@ -70,16 +70,20 @@ _EXTRACT_JS = """(function(){
     var dt = mk ? mk.developerToken : null;
     if (ut) return JSON.stringify({devToken:dt, userToken:ut,
                                    isAuthorized:!!(mk&&mk.isAuthorized)});
-    return JSON.stringify({error: window.__mc_error || "no_token",
+    return JSON.stringify({error: window.__mc_error || 'no_token',
                            isAuthorized: !!(mk&&mk.isAuthorized)});
   } catch(e) { return JSON.stringify({error: String(e)}); }
 })()"""
 
 
 def _run_applescript(js: str, timeout: int = 20) -> str:
+    # Pass script via stdin to avoid ALL shell/AppleScript quoting issues.
+    # json.dumps produces a valid AppleScript string literal as long as
+    # the JS itself uses only single quotes (no \" escapes needed).
     script = _APPLESCRIPT_TMPL.format(js_json=json.dumps(js))
     r = subprocess.run(
-        ["osascript", "-e", script],
+        ["osascript"],
+        input=script,
         capture_output=True, text=True, timeout=timeout,
     )
     return r.stdout.strip()
