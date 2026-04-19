@@ -108,26 +108,50 @@ def run_osascript_auth() -> tuple[str, str] | tuple[None, None]:
             "open", "-na", "Google Chrome", "--args",
             f"--user-data-dir={_AUTH_PROFILE.resolve()}",
             "--profile-directory=Default",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-default-apps",
             "--new-window",
             "https://music.apple.com/",
         ],
         check=False,
     )
 
-    print("[2/4] 等待 MusicKit 初始化（15 秒）...")
-    time.sleep(15)
+    print("[2/4] 等待 MusicKit 初始化（20 秒）...")
+    time.sleep(20)
 
-    # 觸發 MusicKit.authorize()，最多重試 3 次等待初始化
+    # 觸發 MusicKit.authorize()，最多重試 6 次等待初始化
     trigger_result = ""
-    for attempt in range(3):
+    for attempt in range(6):
         try:
             trigger_result = _run_applescript(_TRIGGER_JS)
         except Exception as e:
             trigger_result = f"osascript_error:{e}"
+
+        # 列出 Chrome 目前所有分頁 URL（除錯用）
+        if not trigger_result or trigger_result == "no_instance":
+            try:
+                tab_list = subprocess.run(
+                    ["osascript", "-e",
+                     'tell application "Google Chrome"\n'
+                     '  set u to {}\n'
+                     '  repeat with w in windows\n'
+                     '    repeat with t in tabs of w\n'
+                     '      set end of u to URL of t\n'
+                     '    end repeat\n'
+                     '  end repeat\n'
+                     '  return u as string\n'
+                     'end tell'],
+                    capture_output=True, text=True, timeout=10,
+                ).stdout.strip()
+                print(f"  Chrome 分頁：{tab_list[:120] or '(無視窗)' }")
+            except Exception:
+                pass
+
         if trigger_result and trigger_result not in ("", "no_instance"):
             break
-        print(f"  MusicKit 尚未就緒（{attempt + 1}/3），再等 5 秒...")
-        time.sleep(5)
+        print(f"  MusicKit 尚未就緒（{attempt + 1}/6），再等 8 秒...")
+        time.sleep(8)
 
     print(f"[3/4] authorize() 觸發結果：{trigger_result}")
 
