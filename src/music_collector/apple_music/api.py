@@ -168,31 +168,40 @@ def search_track(
     1. 精確查詢 "{title} {artist}"
     2. 反向查詢 "{artist} {title}"
     兩種查詢都做藝人 + 曲名雙重驗證。
+    429 Too Many Requests：依 Retry-After header 退避，最多重試 3 次。
     """
     headers = _make_headers(dev_token, user_token)
     url = f"{APPLE_MUSIC_BASE}/v1/catalog/{storefront}/search"
 
     for term in [f"{title} {artist}", f"{artist} {title}"]:
-        try:
-            resp = httpx.get(
-                url,
-                params={"term": term, "types": "songs", "limit": 10},
-                headers=headers,
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                logger.debug(f"搜尋失敗 HTTP {resp.status_code}：{term}")
-                continue
+        for attempt in range(4):
+            try:
+                resp = httpx.get(
+                    url,
+                    params={"term": term, "types": "songs", "limit": 10},
+                    headers=headers,
+                    timeout=15,
+                )
+                if resp.status_code == 429:
+                    wait = int(resp.headers.get("Retry-After", 5 * (attempt + 1)))
+                    logger.warning(f"搜尋 429 rate limit，等待 {wait}s 後重試（{attempt+1}/3）")
+                    time.sleep(wait)
+                    continue
+                if resp.status_code != 200:
+                    logger.debug(f"搜尋失敗 HTTP {resp.status_code}：{term}")
+                    break
 
-            songs = resp.json().get("results", {}).get("songs", {}).get("data", [])
-            for song in songs:
-                attrs = song.get("attributes", {})
-                result_title = attrs.get("name", "")
-                result_artist = attrs.get("artistName", "")
-                if _is_match(title, result_title) and _is_match(artist, result_artist):
-                    return song["id"]
-        except Exception as e:
-            logger.debug(f"搜尋例外（{term}）：{e}")
+                songs = resp.json().get("results", {}).get("songs", {}).get("data", [])
+                for song in songs:
+                    attrs = song.get("attributes", {})
+                    result_title = attrs.get("name", "")
+                    result_artist = attrs.get("artistName", "")
+                    if _is_match(title, result_title) and _is_match(artist, result_artist):
+                        return song["id"]
+                break
+            except Exception as e:
+                logger.debug(f"搜尋例外（{term}）：{e}")
+                break
 
     return None
 
