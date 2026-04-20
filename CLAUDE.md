@@ -126,9 +126,15 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 
 ### Token 驗證
 
-- `_load_token_file()`：讀取 token 檔，超過 `TOKEN_FILE_MAX_AGE_HOURS`（23 小時）視為過期
+- `_load_token_file()`：讀取 token 檔，超過 `TOKEN_FILE_MAX_AGE_HOURS`（168 小時 / 7 天）視為過期
 - `_validate_session()`：打 `GET /v1/me/library/playlists` 驗證（最多 2 次重試）
 - Token 無效 → 拋出 `AppleMusicAuthRequiredError`，排程自動跳過並發 LINE 通知
+
+### API 呼叫注意事項
+
+- 所有 API 請求需帶 `Origin: https://music.apple.com`（AMPWebPlay token 的 origin 限制）
+- 搜尋 429 Too Many Requests：自動讀取 `Retry-After` header 退避重試，最多 3 次
+- `search_track()` 使用雙查詢策略：`"{title} {artist}"` + `"{artist} {title}"`，均驗證藝人 + 曲名
 
 ### 非互動環境偵測
 
@@ -149,9 +155,9 @@ Session 過期時，排程會自動跳過並發 LINE 通知。手動恢復步驟
 ```
 
 流程：
-1. `auth_server.py` 從 Apple Music bundle 取得 `developerToken`
-2. 啟動 `localhost:8765` 授權頁面，自動開啟真實 Chrome
-3. 使用者點擊「授權 Apple Music」→ 完成 Apple ID 登入（Email → 密碼 → 2FA）
+1. 確認 Safari 已開啟 `music.apple.com` 並登入 Apple ID
+2. `auth_server.py` 透過 AppleScript 讀取 Safari 的 `media-user-token` cookie
+3. 從 Vite bundle 提取 `developerToken`
 4. Token 儲存至 `data/apple_music_tokens.json`
 5. 自動執行完整同步（`./sync-apple-music.sh`）
 

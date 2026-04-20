@@ -33,7 +33,7 @@ ALLOW_INTERACTIVE_LOGIN_ENV = "MUSIC_COLLECTOR_ALLOW_INTERACTIVE_APPLE_LOGIN"
 
 # Token 檔案（由 recover-apple-music-sync.sh 透過 osascript 寫入）
 TOKEN_FILE = Path("data/apple_music_tokens.json")
-TOKEN_FILE_MAX_AGE_HOURS = 23
+TOKEN_FILE_MAX_AGE_HOURS = 168  # Safari media-user-token cookie 壽命數週至數月，7 天作為保守上限
 
 TRACKS_BATCH_SIZE = 300
 SEARCH_INTERVAL = 0.15

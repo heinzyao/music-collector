@@ -1,7 +1,23 @@
 # Apple Music Token 取得替代方案
 
 **建立日期**：2026-04-20  
+**完成日期**：2026-04-21  
+**狀態**：✅ 方案 A 已實作並驗證通過（sync 成功執行）
+
 **背景**：原有三條路線（Selenium、localhost HTTP server、osascript 注入 JS）全數失敗，需完全重新規劃。
+
+---
+
+## 最終解法摘要（2026-04-21）
+
+**方案 A（Safari cookie）+ Origin header 修復**，兩個獨立問題的組合修復：
+
+1. **token 取得**：`run_safari_cookie_auth()` 透過 AppleScript 讀 Safari `media-user-token` cookie，完全繞開 `MusicKit.authorize()`。
+2. **API 呼叫**：所有 REST 請求加入 `Origin: https://music.apple.com` header。AMPWebPlay JWT（從 Vite bundle 提取）被 Apple API 綁定到此 origin，缺少時一律 401。
+
+**關鍵發現**：先前所有 API 呼叫失敗（包含 token 看似有效的情況）的根本原因是 Origin header 缺失，而非 token 本身無效。
+
+---
 
 ---
 
@@ -41,16 +57,21 @@
 
 ### 實作步驟
 
-- [ ] 完成上述兩個前置設定
-- [ ] 在 Safari 開 `music.apple.com` 完成 Apple ID 登入（勾選「保持登入」）
-- [ ] 新增 `auth_server.py` 函式 `run_safari_cookie_auth()`：
+- [x] 完成上述兩個前置設定
+- [x] 在 Safari 開 `music.apple.com` 完成 Apple ID 登入（勾選「保持登入」）
+- [x] 新增 `auth_server.py` 函式 `run_safari_cookie_auth()`：
   - AppleScript `do JavaScript "document.cookie"` in Safari 對 `music.apple.com` 分頁
   - 從 cookie 字串擷取 `media-user-token=<value>`
   - `developerToken` 沿用現有 `fetch_developer_token()`（Vite bundle JWT）
   - 寫入 `data/apple_music_tokens.json`（格式不變）
-- [ ] 更新 `__main__` 入口：macOS 優先走 `run_safari_cookie_auth()`
-- [ ] 更新 `recover-apple-music-sync.sh` 文字說明
-- [ ] 更新 `CLAUDE.md` 授權流程段落
+- [x] 更新 `__main__` 入口：macOS 優先走 `run_safari_cookie_auth()`
+- [x] 更新 `recover-apple-music-sync.sh` 文字說明
+- [x] 更新 `CLAUDE.md` 授權流程段落
+
+**追加修復**：
+- [x] `api.py` `_make_headers()` 加入 `Origin: https://music.apple.com`（根本原因修復）
+- [x] `search_track()` 加入 429 重試退避邏輯
+- [x] `TOKEN_FILE_MAX_AGE_HOURS` 從 23 延長至 168（7 天）
 
 ### 把握度：高
 
