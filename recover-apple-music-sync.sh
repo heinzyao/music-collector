@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Music Collector — Apple Music Token 取得與同步
 #
-# 新流程（不使用 Selenium 或 osascript token 擷取）：
-#   1. 從 music.apple.com 取得 Developer Token
-#   2. 啟動本機 HTTP 授權頁面（localhost:8765）
-#   3. 開啟真實瀏覽器，使用者點擊授權按鈕完成 Apple ID 登入
-#   4. MusicKit.authorize() 在真實瀏覽器中執行（無 bot 偵測問題）
-#   5. Token 儲存至 data/apple_music_tokens.json
-#   6. 執行完整同步
+# 流程（Safari cookie 路線）：
+#   1. 從 Safari 的 music.apple.com 分頁讀取 media-user-token cookie
+#   2. 從 Apple Music Vite bundle 提取 developerToken
+#   3. Token 儲存至 data/apple_music_tokens.json
+#   4. 執行完整同步
+#
+# 前置條件（一次性設定）：
+#   - Safari → 偏好設定 → 進階 → 勾選「在選單列中顯示開發選單」
+#   - Safari → 開發 → 勾選「允許 JavaScript 從 Apple 事件執行」
+#   - 在 Safari 開啟 music.apple.com 並完成 Apple ID 登入
 #
 # 用法：
 #   ./recover-apple-music-sync.sh

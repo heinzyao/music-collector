@@ -112,13 +112,17 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 
 ### Token 取得（`auth_server.py`）
 
-`auth_server.py` 實作本機 MusicKit 授權伺服器：
+`auth_server.py` 實作 Safari cookie 讀取授權（macOS 主路線）：
 
-1. 從 `music.apple.com` Vite JS bundle 提取 `developerToken`（無需登入）
-2. 啟動 `localhost:8765` HTTP 伺服器，提供授權頁面
-3. `open` 開啟**真實 Chrome**（非 Selenium，無 bot 偵測問題）
-4. 使用者點擊「授權 Apple Music」→ `MusicKit.authorize()` 觸發 Apple ID 登入
-5. 授權完成後頁面 POST token 至本機伺服器，儲存至 `data/apple_music_tokens.json`
+1. AppleScript 呼叫 Safari 對 `music.apple.com` 分頁執行 `document.cookie`
+2. 正則擷取 `media-user-token` 值（即 `musicUserToken`）
+3. 從 `music.apple.com` Vite JS bundle 提取 `developerToken`
+4. 合併儲存至 `data/apple_music_tokens.json`
+
+**前置條件（一次性）**：
+- Safari → 偏好設定 → 進階 → 勾選「在選單列中顯示開發選單」
+- Safari → 開發 → 勾選「允許 JavaScript 從 Apple 事件執行」
+- 在 Safari 開啟 `music.apple.com` 並完成 Apple ID 登入
 
 ### Token 驗證
 
@@ -132,7 +136,7 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 
 ### 已知限制
 
-- Token 有效期約 23 小時，到期需重新執行 `./recover-apple-music-sync.sh`
+- Token（Safari cookie）有效期數週至數月，到期需重新執行 `./recover-apple-music-sync.sh`
 - Apple Music API 每次 POST 最多加入 300 首，超過需分批
 - `data/apple_music_tokens.json` 含敏感 token，不可推送至 Git
 

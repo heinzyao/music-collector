@@ -1,9 +1,13 @@
 """Apple Music MusicKit 授權模組。
 
-macOS 主路線（run_osascript_auth）：
-    以真實 Chrome 開啟 music.apple.com，透過 AppleScript 注入 JS 直接呼叫
-    MusicKit.authorize()，在 Apple 自己的 domain 完成授權，繞過 origin 限制
-    與 bot 偵測。使用獨立的 data/auth_profile 避免 Selenium profile 污染。
+macOS 主路線（run_safari_cookie_auth）：
+    從 Safari 的 music.apple.com 分頁讀取 media-user-token cookie，
+    完全不觸碰 MusicKit JS，繞過所有 origin 限制與 bot 偵測。
+
+    前置條件（一次性）：
+    1. Safari → 偏好設定 → 進階 → 勾選「在選單列中顯示開發選單」
+    2. Safari → 開發 → 勾選「允許 JavaScript 從 Apple 事件執行」
+    3. 在 Safari 開 music.apple.com 並完成 Apple ID 登入
 
 備援路線（run_auth_server，非 macOS 時）：
     啟動 localhost:8765 HTTP 伺服器提供授權頁面。
@@ -20,7 +24,6 @@ import re
 import subprocess
 import sys
 import threading
-import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -32,16 +35,13 @@ AUTH_PORT = 8765
 MUSICKIT_JS_URL = "https://js-cdn.music.apple.com/musickit/v3/musickit.js"
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}")
 
-# 獨立 Chrome profile（與舊 Selenium browser_profile 隔離）
-_AUTH_PROFILE = Path("data/auth_profile")
-
-_APPLESCRIPT_TMPL = """\
-tell application "Google Chrome"
+_SAFARI_COOKIE_SCRIPT = """\
+tell application "Safari"
     set _result to ""
     repeat with w in windows
         repeat with t in tabs of w
             if URL of t contains "music.apple.com" then
-                set _result to execute t javascript {js_json}
+                set _result to do JavaScript "document.cookie" in t
                 exit repeat
             end if
         end repeat
@@ -50,43 +50,6 @@ tell application "Google Chrome"
     return _result
 end tell
 """
-
-_TRIGGER_JS = """(function(){
-  try {
-    var mk = MusicKit.getInstance();
-    if (!mk) return 'no_instance';
-    if (mk.isAuthorized && mk.musicUserToken) return 'already_authorized';
-    mk.authorize()
-      .then(function(t){ window.__mc_token = t; })
-      .catch(function(e){ window.__mc_error = String(e); });
-    return 'triggered';
-  } catch(e) { return 'error:' + String(e); }
-})()"""
-
-_EXTRACT_JS = """(function(){
-  try {
-    var mk = MusicKit.getInstance();
-    var ut = (mk && mk.musicUserToken) ? mk.musicUserToken : window.__mc_token;
-    var dt = mk ? mk.developerToken : null;
-    if (ut) return JSON.stringify({devToken:dt, userToken:ut,
-                                   isAuthorized:!!(mk&&mk.isAuthorized)});
-    return JSON.stringify({error: window.__mc_error || 'no_token',
-                           isAuthorized: !!(mk&&mk.isAuthorized)});
-  } catch(e) { return JSON.stringify({error: String(e)}); }
-})()"""
-
-
-def _run_applescript(js: str, timeout: int = 20) -> str:
-    # Pass script via stdin to avoid ALL shell/AppleScript quoting issues.
-    # json.dumps produces a valid AppleScript string literal as long as
-    # the JS itself uses only single quotes (no \" escapes needed).
-    script = _APPLESCRIPT_TMPL.format(js_json=json.dumps(js))
-    r = subprocess.run(
-        ["osascript"],
-        input=script,
-        capture_output=True, text=True, timeout=timeout,
-    )
-    return r.stdout.strip()
 
 
 def _save_token(data: dict) -> None:
@@ -97,106 +60,56 @@ def _save_token(data: dict) -> None:
     )
 
 
-# ── 主路線：osascript + 真實 Chrome ──
+# ── 主路線：Safari cookie ──
 
 
-def run_osascript_auth() -> tuple[str, str] | tuple[None, None]:
-    """macOS 專用：以真實 Chrome 開啟 music.apple.com，透過 AppleScript 觸發
-    MusicKit.authorize()，在 Apple 自己的 domain 完成授權。
+def run_safari_cookie_auth() -> tuple[str, str] | tuple[None, None]:
+    """macOS 專用：從 Safari 的 music.apple.com 分頁讀取 media-user-token cookie。
+
+    前置條件（一次性）：
+    1. Safari → 偏好設定 → 進階 → 勾選「在選單列中顯示開發選單」
+    2. Safari → 開發 → 勾選「允許 JavaScript 從 Apple 事件執行」
+    3. music.apple.com 已在 Safari 登入
     """
-    _AUTH_PROFILE.mkdir(parents=True, exist_ok=True)
+    print("[1/3] 從 Safari 讀取 Apple Music cookie...")
 
-    print("[1/4] 開啟 Apple Music（真實 Chrome，獨立 profile）...")
-    subprocess.run(
-        [
-            "open", "-na", "Google Chrome", "--args",
-            f"--user-data-dir={_AUTH_PROFILE.resolve()}",
-            "--profile-directory=Default",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-default-apps",
-            "--new-window",
-            "https://music.apple.com/",
-        ],
-        check=False,
-    )
-
-    print("[2/4] 等待 MusicKit 初始化（20 秒）...")
-    time.sleep(20)
-
-    # 觸發 MusicKit.authorize()，最多重試 6 次等待初始化
-    trigger_result = ""
-    for attempt in range(6):
-        try:
-            trigger_result = _run_applescript(_TRIGGER_JS)
-        except Exception as e:
-            trigger_result = f"osascript_error:{e}"
-
-        # 列出 Chrome 目前所有分頁 URL（除錯用）
-        if not trigger_result or trigger_result == "no_instance":
-            try:
-                tab_list = subprocess.run(
-                    ["osascript", "-e",
-                     'tell application "Google Chrome"\n'
-                     '  set u to {}\n'
-                     '  repeat with w in windows\n'
-                     '    repeat with t in tabs of w\n'
-                     '      set end of u to URL of t\n'
-                     '    end repeat\n'
-                     '  end repeat\n'
-                     '  return u as string\n'
-                     'end tell'],
-                    capture_output=True, text=True, timeout=10,
-                ).stdout.strip()
-                print(f"  Chrome 分頁：{tab_list[:120] or '(無視窗)' }")
-            except Exception:
-                pass
-
-        if trigger_result and trigger_result not in ("", "no_instance"):
-            break
-        print(f"  MusicKit 尚未就緒（{attempt + 1}/6），再等 8 秒...")
-        time.sleep(8)
-
-    print(f"[3/4] authorize() 觸發結果：{trigger_result}")
-
-    if not trigger_result or "error" in trigger_result or trigger_result == "no_instance":
-        print("[ERROR] MusicKit 未初始化或觸發失敗。")
-        print("        請確認 Chrome 已完整載入 music.apple.com 後重試。")
+    print("        （若 Safari 跳出權限對話框，請點擊「允許」）")
+    try:
+        r = subprocess.run(
+            ["osascript"],
+            input=_SAFARI_COOKIE_SCRIPT,
+            capture_output=True, text=True, timeout=30,
+        )
+        cookie_str = r.stdout.strip()
+    except Exception as e:
+        print(f"[ERROR] AppleScript 執行失敗：{e}")
         return None, None
 
-    if trigger_result != "already_authorized":
-        print()
-        print("=" * 60)
-        print("Apple ID 登入視窗已在 Chrome 中開啟。")
-        print("請完成登入：Email → 密碼 → 雙重認證碼")
-        print("看到頭像後再等 3 秒，然後按 Enter。")
-        print("=" * 60)
-        input()
+    if not cookie_str:
+        print("[ERROR] Safari 回傳空字串。")
+        print("        請確認：")
+        print("        1. Safari → 開發 → 已勾選「允許 JavaScript 從 Apple 事件執行」")
+        print("        2. Safari 有開啟 music.apple.com 分頁且已登入 Apple ID")
+        return None, None
 
-    # 提取 token，最多重試 5 次
-    for attempt in range(5):
-        if attempt > 0:
-            time.sleep(3)
-        try:
-            raw = _run_applescript(_EXTRACT_JS)
-            data = json.loads(raw)
-        except Exception as e:
-            print(f"  Attempt {attempt + 1}/5 解析失敗：{e}")
-            continue
+    m = re.search(r'(?:^|;\s*)media-user-token=([^;]+)', cookie_str)
+    if not m:
+        print("[ERROR] cookie 中找不到 media-user-token。")
+        print("        請在 Safari 的 music.apple.com 頁面重新登入 Apple ID 後再試。")
+        return None, None
 
-        if data.get("userToken"):
-            _save_token(data)
-            print(f"\n[4/4] Token 已儲存至 {TOKEN_FILE}")
-            return data.get("devToken"), data["userToken"]
+    user_token = m.group(1).strip()
+    print(f"[2/3] media-user-token 取得成功（長度 {len(user_token)}）")
 
-        print(
-            f"  Attempt {attempt + 1}/5："
-            f"{data.get('error', 'no token yet')}"
-            f" (isAuthorized={data.get('isAuthorized')})"
-        )
+    print("[3/3] 取得 Developer Token...")
+    dev_token = fetch_developer_token()
+    if not dev_token:
+        print("[ERROR] 無法取得 Developer Token。")
+        return None, None
 
-    print("[WARN] 無法取得 token，請確認已完成 Apple ID 登入。")
-    return None, None
+    _save_token({"devToken": dev_token, "userToken": user_token, "isAuthorized": True})
+    print(f"\nToken 已儲存至 {TOKEN_FILE}")
+    return dev_token, user_token
 
 
 # ── 備援路線：localhost HTTP 伺服器 ──
@@ -306,7 +219,7 @@ async function doAuth() {{
 
 
 def run_auth_server(port: int = AUTH_PORT) -> tuple[str, str] | tuple[None, None]:
-    """備援：localhost HTTP 授權伺服器。"""
+    """備援：localhost HTTP 授權伺服器（非 macOS 使用）。"""
     print("\n正在從 Apple Music 取得 Developer Token...")
     dev_token = fetch_developer_token()
     if not dev_token:
@@ -364,11 +277,11 @@ def run_auth_server(port: int = AUTH_PORT) -> tuple[str, str] | tuple[None, None
     return None, None
 
 
-# ── 入口：macOS 用 osascript，其他平台用 localhost server ──
+# ── 入口：macOS 用 Safari cookie，其他平台用 localhost server ──
 
 if __name__ == "__main__":
     if sys.platform == "darwin":
-        dev, user = run_osascript_auth()
+        dev, user = run_safari_cookie_auth()
     else:
         dev, user = run_auth_server()
     sys.exit(0 if (dev and user) else 1)

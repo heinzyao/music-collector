@@ -94,9 +94,12 @@ def _load_token_file() -> tuple[str, str] | tuple[None, None]:
 
 
 def _make_headers(dev_token: str, user_token: str) -> dict[str, str]:
+    # Origin required: AMPWebPlay token is bound to music.apple.com origin
     return {
         "Authorization": f"Bearer {dev_token}",
         "Music-User-Token": user_token,
+        "Origin": "https://music.apple.com",
+        "Referer": "https://music.apple.com/",
     }
 
 
