@@ -10,7 +10,7 @@ from .config import DATA_DIR, DB_PATH
 
 
 def init_db() -> sqlite3.Connection:
-    """初始化資料庫連線，自動建立 tracks 資料表（若不存在）。"""
+    """初始化資料庫連線，自動建立 tracks 與 source_checks 資料表（若不存在）。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -24,6 +24,20 @@ def init_db() -> sqlite3.Connection:
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(artist, title)       -- 去重：同一藝人+曲名只存一筆
         )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS source_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            track_count INTEGER DEFAULT 0,
+            error_message TEXT,
+            checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_source_checks_source_at
+        ON source_checks(source, checked_at DESC)
     """)
     conn.commit()
     return conn

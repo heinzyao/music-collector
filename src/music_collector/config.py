@@ -11,7 +11,9 @@ load_dotenv()
 # ── Spotify API 憑證 ──
 SPOTIFY_CLIENT_ID = os.environ.get("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
-SPOTIFY_REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback")
+SPOTIFY_REDIRECT_URI = os.environ.get(
+    "SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback"
+)
 PLAYLIST_NAME = os.environ.get("PLAYLIST_NAME", "Critics' Picks — Fresh Tracks")
 PLAYLIST_DESCRIPTION = (
     "每日自動策展｜彙整 Pitchfork、Stereogum、Rolling Stone、NME、SPIN、"
@@ -22,9 +24,9 @@ PLAYLIST_DESCRIPTION = (
 
 # ── 檔案路徑 ──
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # 專案根目錄
-DATA_DIR = PROJECT_ROOT / "data"                              # 資料存放目錄
-DB_PATH = DATA_DIR / "tracks.db"                              # SQLite 資料庫路徑
-SPOTIFY_CACHE_PATH = PROJECT_ROOT / ".spotify_cache"          # Spotify OAuth Token 快取
+DATA_DIR = PROJECT_ROOT / "data"  # 資料存放目錄
+DB_PATH = DATA_DIR / "tracks.db"  # SQLite 資料庫路徑
+SPOTIFY_CACHE_PATH = PROJECT_ROOT / ".spotify_cache"  # Spotify OAuth Token 快取
 
 # ── LINE Messaging API 憑證（選用）──
 LINE_CHANNEL_ID = os.environ.get("LINE_CHANNEL_ID", "")
@@ -39,11 +41,15 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-REQUEST_TIMEOUT = 30          # HTTP 請求逾時秒數
-MAX_TRACKS_PER_SOURCE = 50    # 每個來源最多擷取的曲目數
+REQUEST_TIMEOUT = 30  # HTTP 請求逾時秒數
+MAX_TRACKS_PER_SOURCE = 50  # 每個來源最多擷取的曲目數
 
 # ── Playwright 設定（選用）──
 ENABLE_PLAYWRIGHT = os.environ.get("ENABLE_PLAYWRIGHT", "false").lower() == "true"
+
+# ── 來源健康檢查閾值 ──
+SOURCE_FAILURE_THRESHOLD = int(os.environ.get("SOURCE_FAILURE_THRESHOLD", "3"))
+SOURCE_EMPTY_DAYS_THRESHOLD = int(os.environ.get("SOURCE_EMPTY_DAYS_THRESHOLD", "5"))
 
 # ── Telegram 通知（選用）──
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")

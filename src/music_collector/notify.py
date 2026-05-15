@@ -10,6 +10,7 @@
 
 import logging
 from collections import Counter
+from typing import Any
 
 import httpx
 
@@ -35,6 +36,7 @@ def send_notification(
     spotify_found: list[str],
     spotify_not_found: list[Track],
     apple_music_status: str | None = None,
+    unhealthy_sources: list[Any] | None = None,
 ) -> None:
     """發送通知摘要至所有已設定的通道。
 
@@ -43,9 +45,10 @@ def send_notification(
         spotify_found: 成功配對的 Spotify URI 清單。
         spotify_not_found: 在 Spotify 上未找到的曲目清單。
         apple_music_status: Apple Music 匯入狀態訊息。
+        unhealthy_sources: 不健康或有警告的來源清單。
     """
     message = _build_message(
-        tracks, spotify_found, spotify_not_found, apple_music_status
+        tracks, spotify_found, spotify_not_found, apple_music_status, unhealthy_sources
     )
 
     _send_line(message)
@@ -187,13 +190,13 @@ def _build_message(
     spotify_found: list[str],
     spotify_not_found: list[Track],
     apple_music_status: str | None = None,
+    unhealthy_sources: list[Any] | None = None,
 ) -> str:
     """組合通知文字。"""
     total = len(tracks)
     found = len(spotify_found)
     not_found = len(spotify_not_found)
 
-    # 各來源貢獻統計
     source_counts = Counter(t.source for t in tracks)
     source_lines = "\n".join(
         f"  {source}: {count}" for source, count in source_counts.most_common()
@@ -209,6 +212,17 @@ def _build_message(
 
     if apple_music_status:
         msg += f"Apple Music：{apple_music_status}\n"
+
+    if unhealthy_sources:
+        msg += "\n⚠️ 來源異常：\n"
+        for h in unhealthy_sources:
+            if h.status == "unhealthy":
+                msg += f"  🔴 {h.source}：連續失敗 {h.consecutive_failures} 次"
+                if h.last_error:
+                    msg += f"（{h.last_error}）"
+                msg += "\n"
+            else:
+                msg += f"  🟡 {h.source}：連續 {h.consecutive_empty_days} 天無曲目（可能結構改變）\n"
 
     msg += f"\n各來源貢獻：\n{source_lines}"
     return msg
@@ -244,4 +258,31 @@ def _build_apple_music_message(
             if error:
                 msg += f"\n原因：{error}"
             msg += "\n\n請檢查日誌或手動匯入。"
+    return msg
+
+
+def send_source_health_notification(unhealthy_sources: list[Any]) -> None:
+    """發送來源健康警示至所有已設定的通道。"""
+    message = _build_source_health_message(unhealthy_sources)
+    _send_line(message)
+    _send_telegram(message)
+    _send_slack(message)
+
+
+def _build_source_health_message(unhealthy_sources: list[Any]) -> str:
+    """組合來源健康警示文字。"""
+    msg = "🚨 Music Collector 來源異常警示\n\n"
+    for h in unhealthy_sources:
+        if h.status == "unhealthy":
+            msg += f"🔴 {h.source}\n"
+            msg += (
+                f"   連續失敗 {h.consecutive_failures} 次，可能已無法連線或結構改變\n"
+            )
+            if h.last_error:
+                msg += f"   最後錯誤：{h.last_error}\n"
+        else:
+            msg += f"🟡 {h.source}\n"
+            msg += f"   連續 {h.consecutive_empty_days} 天未回傳任何曲目，建議檢查是否結構改變\n"
+        msg += "\n"
+    msg += "請檢查日誌或執行 --health 查看詳情。"
     return msg

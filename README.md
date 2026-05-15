@@ -28,6 +28,7 @@ The following workflow is executed automatically every day:
 - **Data Analysis**: Features source-contribution statistics, Spotify match rates, and cross-reference overlap analysis.
 - **Web Interface**: A Streamlit environment to view historical logs, data distribution, and backup archives.
 - **Playwright Support**: Provides seamless fallback to browser-rendering for Javascript-heavy scraping targets.
+- **Source Health Monitoring**: Automatically detects sources that are failing consecutively or returning zero tracks for multiple days, and sends alerts via LINE/Telegram/Slack.
 
 #### Supported Music Media Outlets
 
@@ -78,6 +79,10 @@ cp .env.example .env
    - **Telegram**: Initialize via [@BotFather](https://t.me/BotFather), enter `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
    - **Slack**: Setup an Incoming Webhook, copy the path into `SLACK_WEBHOOK_URL`.
 
+4. **Source Health Thresholds** (Optional):
+   - `SOURCE_FAILURE_THRESHOLD`: Consecutive failures before marking a source as unhealthy (default: 3).
+   - `SOURCE_EMPTY_DAYS_THRESHOLD`: Consecutive days with zero tracks before warning (default: 5).
+
 4. Initial Spotify OAuth flow (A browser will be invoked to securely log in):
 
 ```bash
@@ -115,6 +120,9 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --stats              # Overview
 ./run.sh --stats overlap      # Display duplicates across sites
 ./run.sh --stats sources      # Source ranking
+
+# Source Health Report
+./run.sh --health             # Show health status of all scrapers
 
 # Web App
 ./run.sh --web
@@ -359,6 +367,7 @@ MIT License
 - **資料分析**：來源貢獻、Spotify 配對率、跨來源重疊分析
 - **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
 - **Playwright 支援**：JS 重度渲染網站自動 fallback 至瀏覽器渲染
+- **來源健康監控**：自動偵測連續失敗或長期無曲目的來源，透過 LINE/Telegram/Slack 發送警示
 
 #### 支援的音樂媒體來源
 
@@ -409,6 +418,10 @@ cp .env.example .env
    - **Telegram**：建立 Bot（[@BotFather](https://t.me/BotFather)），填入 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`
    - **Slack**：建立 Incoming Webhook，填入 `SLACK_WEBHOOK_URL`
 
+4. **來源健康檢查閾值**（選用）：
+   - `SOURCE_FAILURE_THRESHOLD`：連續失敗幾次標記為 unhealthy（預設：3）
+   - `SOURCE_EMPTY_DAYS_THRESHOLD`：連續幾天無曲目發出警告（預設：5）
+
 4. 首次 Spotify 授權（開啟瀏覽器進行 OAuth 認證）：
 
 ```bash
@@ -446,6 +459,9 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --stats              # 總覽
 ./run.sh --stats overlap      # 跨來源重疊
 ./run.sh --stats sources      # 來源比較
+
+# 來源健康狀態
+./run.sh --health             # 顯示各擷取器健康狀態
 
 # Web 介面
 ./run.sh --web

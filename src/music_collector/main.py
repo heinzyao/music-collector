@@ -27,10 +27,17 @@ from .export import (
 from .stats import show_stats
 from .config import DB_PATH, PLAYLIST_NAME
 from .db import init_db, save_track, track_exists, get_recent_tracks
+from .health import (
+    get_health_report,
+    get_unhealthy_sources,
+    prune_old_checks,
+    record_scrape_result,
+)
 from .notify import (
     send_apple_music_notification,
     send_no_new_tracks_notification,
     send_notification,
+    send_source_health_notification,
 )
 from .scrapers import ALL_SCRAPERS
 from .scrapers.base import Track
@@ -62,13 +69,13 @@ def _count_csv_tracks(csv_path: Path) -> int | None:
         return None
 
 
-def _fetch_from_scraper(scraper) -> tuple[str, list[Track]]:
-    """執行單一擷取器，回傳 (scraper name, tracks)。錯誤時回傳空列表。"""
+def _fetch_from_scraper(scraper) -> tuple[str, list[Track], str | None]:
+    """執行單一擷取器，回傳 (scraper name, tracks, error)。錯誤時回傳空列表與錯誤訊息。"""
     try:
-        return scraper.name, scraper.fetch_tracks()
+        return scraper.name, scraper.fetch_tracks(), None
     except Exception as e:
         logger.warning(f"{scraper.name} 擷取失敗：{e}")
-        return scraper.name, []
+        return scraper.name, [], str(e)
 
 
 def collect_tracks() -> list[Track]:
@@ -77,9 +84,10 @@ def collect_tracks() -> list[Track]:
     使用 asyncio.to_thread 將各擷取器的同步 fetch_tracks() 發送至
     執行緒池平行執行，避免 I/O 等待時間疊加。13 個來源原本依序約需
     30-60 秒，平行化後約 5-10 秒。
+    同時記錄各來源健康狀態到 source_checks 資料表。
     """
 
-    async def _collect_all() -> list[tuple[str, list[Track]]]:
+    async def _collect_all() -> list[tuple[str, list[Track], str | None]]:
         tasks = [
             asyncio.to_thread(_fetch_from_scraper, scraper) for scraper in ALL_SCRAPERS
         ]
@@ -90,7 +98,8 @@ def collect_tracks() -> list[Track]:
     conn = init_db()
     new_tracks: list[Track] = []
 
-    for scraper_name, tracks in results:
+    for scraper_name, tracks, error in results:
+        record_scrape_result(conn, scraper_name, len(tracks), error)
         for track in tracks:
             if not track_exists(conn, track.artist, track.title):
                 new_tracks.append(track)
@@ -253,9 +262,27 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     except Exception as e:
         logger.warning(f"季度歸檔失敗：{e}")
 
+    unhealthy_sources = []
+    try:
+        conn_health = init_db()
+        source_names = [s.name for s in ALL_SCRAPERS]
+        unhealthy_sources = get_unhealthy_sources(conn_health, source_names)
+        prune_old_checks(conn_health)
+        conn_health.close()
+    except Exception as e:
+        logger.warning(f"來源健康檢查失敗：{e}")
+
+    if unhealthy_sources:
+        try:
+            send_source_health_notification(unhealthy_sources)
+        except Exception as e:
+            logger.warning(f"來源健康通知失敗：{e}")
+
     # 通知（LINE / Telegram / Slack）
     try:
-        send_notification(new_tracks, spotify_uris, not_found, apple_music_status)
+        send_notification(
+            new_tracks, spotify_uris, not_found, apple_music_status, unhealthy_sources
+        )
     except Exception as e:
         logger.warning(f"通知失敗：{e}")
 
@@ -276,6 +303,15 @@ def show_recent(days: int = 7) -> None:
     for t in tracks:
         status = "已加入 Spotify" if t["spotify_uri"] else "未找到"
         print(f"  [{t['source']}] {t['artist']} — {t['title']} ({status})")
+
+
+def show_health() -> None:
+    """顯示所有擷取器來源的健康狀態報告。"""
+    conn = init_db()
+    source_names = [s.name for s in ALL_SCRAPERS]
+    report = get_health_report(conn, source_names)
+    conn.close()
+    print("\n" + report)
 
 
 def check_apple_music_session() -> bool:
@@ -407,6 +443,11 @@ def main() -> None:
         action="store_true",
         help="合併主歌單與所有歸檔歌單匯出 CSV，用於一次性復原 Apple Music 累積歌單",
     )
+    parser.add_argument(
+        "--health",
+        action="store_true",
+        help="顯示各擷取器來源的健康狀態報告",
+    )
     args = parser.parse_args()
 
     if args.web:
@@ -441,6 +482,8 @@ def main() -> None:
         raise SystemExit(0 if check_apple_music_session() else 1)
     elif args.apple_music:
         raise SystemExit(0 if sync_current_playlist_to_apple_music() else 1)
+    elif args.health:
+        show_health()
     else:
         run(
             dry_run=args.dry_run,
