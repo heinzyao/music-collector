@@ -34,8 +34,12 @@ if PYTHONPATH=src uv run python -m music_collector.apple_music.auth_server; then
   log_summary "[INFO] Apple Music token obtained successfully"
 else
   log_summary "[ERROR] Failed to obtain Apple Music token"
-  printf "\n[ERROR] 授權未完成，無法取得 Token。\n"
-  printf "        請重試，並確認在授權頁面點擊「授權 Apple Music」後完成 Apple ID 登入。\n"
+  printf "\n[ERROR] 無法從 Safari 讀取 Apple Music Token。\n"
+  printf "\n請確認以下前置條件後重試：\n"
+  printf "  1. 在 Safari 開啟 https://music.apple.com 並完成 Apple ID 登入\n"
+  printf "  2. Safari → 偏好設定 → 進階 → 已勾選「在選單列中顯示開發選單」\n"
+  printf "  3. Safari → 開發 → 已勾選「允許 JavaScript 從 Apple 事件執行」\n"
+  printf "\n確認後再次執行 ./recover-apple-music-sync.sh\n"
   exit 1
 fi
 

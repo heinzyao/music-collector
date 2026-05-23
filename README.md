@@ -133,6 +133,9 @@ PYTHONPATH=src uv run python auth.py
 # Manual Apple Music sync: use this when you're present to complete Apple login if needed
 ./run.sh --apple-music
 
+# Merge Apple Music playlists: delete all Critics' Picks playlists and re-import as one
+./run.sh --merge-apple-music
+
 # Recommended Apple Music entrypoint: one menu for Login / Recovery / Sync
 ./apple-music-tools.command
 
@@ -471,6 +474,9 @@ PYTHONPATH=src uv run python auth.py
 
 # 手動 Apple Music 同步：當你人在電腦前、可視需要完成 Apple 登入時使用
 ./run.sh --apple-music
+
+# 合併 Apple Music 歌單：清除所有 Critics' Picks 歌單，從 Spotify 重新匯入為單一歌單
+./run.sh --merge-apple-music
 
 # 建議的 Apple Music 入口：用單一選單處理 Login / Recovery / Sync
 ./apple-music-tools.command

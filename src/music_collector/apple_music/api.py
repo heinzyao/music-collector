@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -206,10 +207,10 @@ def search_track(
     return None
 
 
-def _get_existing_playlist_id(name: str, dev_token: str, user_token: str) -> str | None:
-    """從用戶 library 找出同名播放清單的 ID（取最新一個）。"""
+def _fetch_all_library_playlists(dev_token: str, user_token: str) -> list[dict]:
+    """取得用戶 library 中的所有播放清單（分頁讀取完整列表）。"""
     headers = _make_headers(dev_token, user_token)
-    all_playlists = []
+    all_playlists: list[dict] = []
     offset = 0
     limit = 100
     while True:
@@ -230,8 +231,13 @@ def _get_existing_playlist_id(name: str, dev_token: str, user_token: str) -> str
         except Exception as e:
             logger.warning(f"取得播放清單列表失敗：{e}")
             break
+    return all_playlists
 
-    matches = [p for p in all_playlists if p.get("attributes", {}).get("name") == name]
+
+def _get_existing_playlist_id(name: str, dev_token: str, user_token: str) -> str | None:
+    """從用戶 library 找出同名播放清單的 ID（取最新一個）。"""
+    playlists = _fetch_all_library_playlists(dev_token, user_token)
+    matches = [p for p in playlists if p.get("attributes", {}).get("name") == name]
     if not matches:
         return None
     matches.sort(
@@ -239,6 +245,70 @@ def _get_existing_playlist_id(name: str, dev_token: str, user_token: str) -> str
         reverse=True,
     )
     return matches[0]["id"]
+
+
+def _get_all_playlist_ids_by_name(name: str, dev_token: str, user_token: str) -> list[str]:
+    """從用戶 library 找出所有同名播放清單的 ID 列表。"""
+    playlists = _fetch_all_library_playlists(dev_token, user_token)
+    return [p["id"] for p in playlists if p.get("attributes", {}).get("name") == name]
+
+
+def list_playlists_by_prefix(
+    prefix: str, dev_token: str, user_token: str
+) -> list[dict]:
+    """列出用戶 library 中所有名稱以 prefix 開頭的播放清單，回傳含 id 與 name 的字典列表。"""
+    playlists = _fetch_all_library_playlists(dev_token, user_token)
+    return [
+        {"id": p["id"], "name": p.get("attributes", {}).get("name", "")}
+        for p in playlists
+        if p.get("attributes", {}).get("name", "").startswith(prefix)
+    ]
+
+
+def _delete_playlists_by_name_applescript(name: str) -> bool:
+    """macOS 專屬：透過 AppleScript 刪除 Music.app 中所有同名播放清單。
+
+    media-user-token 不支援 DELETE API，此為 fallback 方案。
+    """
+    if sys.platform != "darwin":
+        return False
+    safe = name.replace("\\", "\\\\").replace('"', '\\"')
+    script = f'tell application "Music" to delete (every user playlist whose name is "{safe}")'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=30
+        )
+        return result.returncode == 0
+    except Exception as e:
+        logger.warning(f"AppleScript 刪除「{name}」失敗：{e}")
+        return False
+
+
+def _delete_playlists_by_prefix_applescript(prefix: str) -> int:
+    """macOS 專屬：透過 AppleScript 刪除所有名稱以 prefix 開頭的播放清單，回傳刪除數量。"""
+    if sys.platform != "darwin":
+        return 0
+    safe = prefix.replace("\\", "\\\\").replace('"', '\\"')
+    script = f"""
+tell application "Music"
+    set cnt to 0
+    repeat with pl in (get every user playlist whose name begins with "{safe}")
+        try
+            delete pl
+            set cnt to cnt + 1
+        end try
+    end repeat
+    return cnt
+end tell"""
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            return int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
+    except Exception as e:
+        logger.warning(f"AppleScript 批次刪除失敗：{e}")
+    return 0
 
 
 def _delete_playlist_by_id(playlist_id: str, dev_token: str, user_token: str) -> bool:
@@ -358,12 +428,19 @@ def _import_with_tokens(
         logger.error("未找到任何曲目，中止匯入")
         return False
 
-    old_id = _get_existing_playlist_id(name, dev_token, user_token)
-    if old_id:
-        if _delete_playlist_by_id(old_id, dev_token, user_token):
-            logger.info(f"已刪除舊播放清單「{name}」（ID: {old_id}）")
+    old_ids = _get_all_playlist_ids_by_name(name, dev_token, user_token)
+    if old_ids:
+        api_deleted = sum(
+            1 for oid in old_ids if _delete_playlist_by_id(oid, dev_token, user_token)
+        )
+        if api_deleted < len(old_ids):
+            # media-user-token 不支援 DELETE API，fallback 到 AppleScript
+            logger.info(
+                f"API 刪除 {api_deleted}/{len(old_ids)} 個，改用 AppleScript 清理剩餘"
+            )
+            _delete_playlists_by_name_applescript(name)
         else:
-            logger.warning("舊播放清單刪除失敗，繼續建立新版本")
+            logger.info(f"已刪除 {api_deleted} 個舊播放清單「{name}」")
         time.sleep(2)
 
     playlist_id = create_playlist(name, dev_token, user_token)

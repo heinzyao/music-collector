@@ -9,11 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 開發指令
 
 ```bash
-# 安裝依賴
-uv sync
-
-# 安裝含 Playwright 瀏覽器渲染
+# 安裝依賴（含 Playwright，Resident Advisor 需要）
 uv sync --extra browser
+
+# 安裝 Playwright Chromium 瀏覽器（首次安裝後僅需執行一次）
+uv run playwright install chromium
 
 # 安裝含測試工具
 uv sync --extra test
@@ -26,6 +26,9 @@ uv sync --extra test
 
 # 查看近期蒐集紀錄
 ./run.sh --recent 7
+
+# 合併 Apple Music 歌單（清除所有 Critics' Picks 歌單，從 Spotify 重新匯入為單一歌單）
+./run.sh --merge-apple-music
 
 # 執行測試（全部）
 PYTHONPATH=src uv run pytest tests/ -q
@@ -49,6 +52,7 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
 - `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（13 個擷取器）
+- `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
@@ -63,7 +67,7 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
 - `src/music_collector/main.py` — 主流程與 CLI
-- `tests/` — 90 項測試（pytest + respx mock）
+- `tests/` — 101 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
 
@@ -135,6 +139,8 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 - 所有 API 請求需帶 `Origin: https://music.apple.com`（AMPWebPlay token 的 origin 限制）
 - 搜尋 429 Too Many Requests：自動讀取 `Retry-After` header 退避重試，最多 3 次
 - `search_track()` 使用雙查詢策略：`"{title} {artist}"` + `"{artist} {title}"`，均驗證藝人 + 曲名
+- **DELETE 限制**：`media-user-token`（Safari cookie）不支援 `DELETE /v1/me/library/playlists/{id}`，固定回傳 401。`api.py` 自動 fallback 至 `_delete_playlists_by_name_applescript()`（osascript 操作 Music.app），在 macOS 上正常運作
+- **歌單合併**：`--merge-apple-music` 指令會列出所有「Critics' Picks」前綴歌單，嘗試 API 刪除後改用 AppleScript fallback，再從 Spotify 合併匯入成單一歌單
 
 ### 非互動環境偵測
 

@@ -24,3 +24,6 @@ com.music-collector*.plist
 
 # macOS
 .DS_Store
+
+# Tool-specific directories
+.sisyphus/

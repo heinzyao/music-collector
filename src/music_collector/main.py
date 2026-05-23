@@ -314,6 +314,82 @@ def show_health() -> None:
     print("\n" + report)
 
 
+def merge_apple_music() -> bool:
+    """清除 Apple Music 中所有 Critics' Picks 歌單，重新從 Spotify 合併匯入成單一歌單。
+
+    步驟：
+    1. 列出 Apple Music 中所有以「Critics' Picks」開頭的歌單並刪除
+    2. export_combined_spotify() 合併 Spotify 主歌單 + 所有季度歸檔歌單
+    3. import_to_apple_music() 搜尋並建立一份完整的新歌單
+    """
+    from .apple_music import AppleMusicAuthRequiredError
+    from .apple_music.api import (
+        _delete_playlist_by_id,
+        _delete_playlists_by_prefix_applescript,
+        _load_token_file,
+        _validate_session,
+        list_playlists_by_prefix,
+    )
+
+    dev_token, user_token = _load_token_file()
+    if not dev_token or not user_token:
+        raise AppleMusicAuthRequiredError(
+            "Apple Music token 不存在或已過期。"
+            " 請先執行 ./recover-apple-music-sync.sh 重新取得 token。"
+        )
+    if not _validate_session(dev_token, user_token):
+        raise AppleMusicAuthRequiredError(
+            "Apple Music token 驗證失敗（已過期或被撤銷）。"
+            " 請先執行 ./recover-apple-music-sync.sh 重新取得 token。"
+        )
+
+    prefix = "Critics' Picks"
+    existing = list_playlists_by_prefix(prefix, dev_token, user_token)
+
+    if existing:
+        print(f"\n找到 {len(existing)} 個需要清除的歌單：")
+        for pl in existing:
+            print(f"  - {pl['name']}（{pl['id']}）")
+        print()
+        api_deleted = sum(
+            1 for pl in existing
+            if _delete_playlist_by_id(pl["id"], dev_token, user_token)
+        )
+        if api_deleted < len(existing):
+            logger.info(
+                f"API 刪除 {api_deleted}/{len(existing)} 個，改用 AppleScript 清理剩餘"
+            )
+            deleted = _delete_playlists_by_prefix_applescript(prefix)
+            logger.info(f"AppleScript 已刪除 {deleted} 個歌單")
+        else:
+            logger.info(f"已刪除所有 {api_deleted} 個歌單")
+    else:
+        print(f"Apple Music 中未找到任何「{prefix}」開頭的歌單。")
+
+    logger.info("從 Spotify 合併所有曲目並重新匯入 Apple Music...")
+    csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
+    if not csv_path:
+        logger.error("匯出 Spotify 歌單失敗")
+        return False
+
+    from .apple_music import import_to_apple_music
+
+    track_count = _count_csv_tracks(csv_path)
+    success = import_to_apple_music(str(csv_path), playlist_name=PLAYLIST_NAME)
+
+    try:
+        send_apple_music_notification(
+            success=success,
+            track_count=track_count,
+            playlist_name=PLAYLIST_NAME,
+            error=None if success else "合併匯入失敗",
+        )
+    except Exception as e:
+        logger.warning(f"Apple Music 通知失敗：{e}")
+
+    return bool(success)
+
+
 def check_apple_music_session() -> bool:
     """檢查 token 檔案是否存在且通過 API 驗證。"""
     from .apple_music.api import _load_token_file, _validate_session
@@ -448,6 +524,12 @@ def main() -> None:
         action="store_true",
         help="顯示各擷取器來源的健康狀態報告",
     )
+    parser.add_argument(
+        "--merge-apple-music",
+        action="store_true",
+        dest="merge_apple_music",
+        help="清除 Apple Music 中所有 Critics' Picks 歌單，從 Spotify 重新合併匯入為單一歌單",
+    )
     args = parser.parse_args()
 
     if args.web:
@@ -484,6 +566,14 @@ def main() -> None:
         raise SystemExit(0 if sync_current_playlist_to_apple_music() else 1)
     elif args.health:
         show_health()
+    elif args.merge_apple_music:
+        from .apple_music import AppleMusicAuthRequiredError
+
+        try:
+            raise SystemExit(0 if merge_apple_music() else 1)
+        except AppleMusicAuthRequiredError as e:
+            print(f"錯誤：{e}")
+            raise SystemExit(1)
     else:
         run(
             dry_run=args.dry_run,

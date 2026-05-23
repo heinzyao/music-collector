@@ -34,7 +34,7 @@ def test_load_token_file_rejects_expired_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token_file = tmp_path / "apple_music_tokens.json"
-    old_time = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=169)).isoformat()
     token_file.write_text(
         json.dumps({"devToken": "dev", "userToken": "user", "extracted_at": old_time}),
         encoding="utf-8",
@@ -156,3 +156,99 @@ def test_import_returns_false_for_empty_csv(
 
     result = api.import_to_apple_music(str(csv_path))
     assert result is False
+
+
+# ── _fetch_all_library_playlists / list_playlists_by_prefix ──
+
+
+@respx.mock
+def test_fetch_all_library_playlists_paginates() -> None:
+    """分頁：第一批滿 100 筆，第二批 3 筆，應共回傳 103 筆。"""
+    page1 = {"data": [{"id": f"p{i}", "attributes": {"name": "A"}} for i in range(100)]}
+    page2 = {"data": [{"id": f"q{i}", "attributes": {"name": "B"}} for i in range(3)]}
+    call_count = 0
+
+    def paginate(request):
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(200, json=page1 if call_count == 1 else page2)
+
+    respx.get("https://api.music.apple.com/v1/me/library/playlists").mock(
+        side_effect=paginate
+    )
+    result = api._fetch_all_library_playlists("dev", "user")
+    assert len(result) == 103
+    assert call_count == 2
+
+
+@respx.mock
+def test_list_playlists_by_prefix_filters_correctly() -> None:
+    playlists = [
+        {"id": "p1", "attributes": {"name": "Critics' Picks — Fresh Tracks"}},
+        {"id": "p2", "attributes": {"name": "Critics' Picks — 2026 Q1"}},
+        {"id": "p3", "attributes": {"name": "Other Playlist"}},
+        {"id": "p4", "attributes": {"name": "Critics' Picks — Fresh Tracks"}},
+    ]
+    respx.get("https://api.music.apple.com/v1/me/library/playlists").mock(
+        return_value=httpx.Response(200, json={"data": playlists})
+    )
+    result = api.list_playlists_by_prefix("Critics' Picks", "dev", "user")
+    assert len(result) == 3
+    assert all(r["name"].startswith("Critics' Picks") for r in result)
+    assert not any(r["name"] == "Other Playlist" for r in result)
+
+
+# ── _get_all_playlist_ids_by_name ──
+
+
+@respx.mock
+def test_get_all_playlist_ids_by_name_returns_all_matches() -> None:
+    playlists = [
+        {"id": "old1", "attributes": {"name": "My Playlist", "dateAdded": "2026-01-01"}},
+        {"id": "old2", "attributes": {"name": "My Playlist", "dateAdded": "2026-02-01"}},
+        {"id": "other", "attributes": {"name": "Other"}},
+    ]
+    respx.get("https://api.music.apple.com/v1/me/library/playlists").mock(
+        return_value=httpx.Response(200, json={"data": playlists})
+    )
+    ids = api._get_all_playlist_ids_by_name("My Playlist", "dev", "user")
+    assert set(ids) == {"old1", "old2"}
+
+
+@respx.mock
+def test_get_all_playlist_ids_by_name_returns_empty_when_none() -> None:
+    respx.get("https://api.music.apple.com/v1/me/library/playlists").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    ids = api._get_all_playlist_ids_by_name("Missing", "dev", "user")
+    assert ids == []
+
+
+# ── AppleScript fallback helpers ──
+
+
+def test_delete_playlists_by_name_applescript_skips_non_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api.sys, "platform", "linux")
+    result = api._delete_playlists_by_name_applescript("Critics' Picks — Fresh Tracks")
+    assert result is False
+
+
+def test_delete_playlists_by_prefix_applescript_skips_non_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api.sys, "platform", "linux")
+    result = api._delete_playlists_by_prefix_applescript("Critics' Picks")
+    assert result == 0
+
+
+def test_delete_playlists_by_prefix_applescript_returns_count_on_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api.sys, "platform", "darwin")
+    fake_result = type("R", (), {"returncode": 0, "stdout": "3\n"})()
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **kw: fake_result)
+
+    count = api._delete_playlists_by_prefix_applescript("Critics' Picks")
+    assert count == 3
