@@ -14,7 +14,7 @@ class TestSpinScraper:
     @respx.mock
     def test_fetch_tracks(self):
         html = load_fixture("spin.html")
-        respx.get("https://www.spin.com/new-music/").mock(
+        respx.get("https://www.spinmagazine.com/new-music/").mock(
             return_value=httpx.Response(200, text=html)
         )
 
