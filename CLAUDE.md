@@ -173,7 +173,7 @@ Session 過期時，排程會自動跳過並發 LINE 通知。手動恢復步驟
 
 - 專案內：`com.music-collector.plist`（以 `run-scheduled.sh` 為入口）
 - 安裝位置：`~/Library/LaunchAgents/com.music-collector.plist`
-- 每日 09:00 執行，log 輸出至 `data/collector.log`
+- 每週日 09:00 執行，log 輸出至 `data/collector.log`
 
 **重要**：專案內的 plist 與安裝的 plist 必須保持一致。更新後須重新安裝：
 

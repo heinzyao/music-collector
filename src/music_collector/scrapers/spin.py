@@ -17,7 +17,7 @@ from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
 
-URL = "https://www.spin.com/new-music/"
+URL = "https://www.spinmagazine.com/new-music/"
 
 
 class SpinScraper(BaseScraper):
