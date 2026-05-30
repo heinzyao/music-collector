@@ -97,12 +97,17 @@ def collect_tracks() -> list[Track]:
 
     conn = init_db()
     new_tracks: list[Track] = []
+    seen_in_run: set[tuple[str, str]] = set()
 
     for scraper_name, tracks, error in results:
         record_scrape_result(conn, scraper_name, len(tracks), error)
         for track in tracks:
+            key = (track.artist.strip().lower(), track.title.strip().lower())
+            if key in seen_in_run:
+                continue
             if not track_exists(conn, track.artist, track.title):
                 new_tracks.append(track)
+                seen_in_run.add(key)
 
     conn.close()
     return new_tracks
