@@ -1,463 +1,48 @@
-"""Apple Music API 直接整合。
+"""Apple Music 手動匯入整合。
 
-透過預存的 token 檔案直接呼叫 Apple Music REST API，
-完成播放清單匯入，不依賴 Selenium 或任何瀏覽器自動化。
-
-Token 取得流程：
-    執行 ./recover-apple-music-sync.sh，在開啟的 Chrome 視窗中完成 Apple Music 登入
-    （點擊右上角 Sign In → Apple ID → 2FA → 確認頭像出現），
-    腳本透過 osascript 自動擷取 MusicKit token 並存至 data/apple_music_tokens.json。
-
-每日同步流程：
-    1. 讀取 data/apple_music_tokens.json（超過 23 小時視為過期）
-    2. _validate_session() 驗證 token 是否可用
-    3. 搜尋 CSV 曲目、刪除舊歌單、建立新歌單、分批加入曲目
+將原本的自動登入與 API 同步，調整為產出 Apple Music 專用手動匯入文字檔（TXT）。
+使用者可在 macOS 「音樂 (Music)」App 中，透過「檔案 -> 資料庫 -> 匯入播放清單」完成手動匯入。
 """
 
 import csv
-import json
 import logging
-import os
-import re
-import subprocess
-import sys
-import time
-from datetime import datetime, timezone
 from pathlib import Path
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
-APPLE_MUSIC_BASE = "https://api.music.apple.com"
-ALLOW_INTERACTIVE_LOGIN_ENV = "MUSIC_COLLECTOR_ALLOW_INTERACTIVE_APPLE_LOGIN"
-
-# Token 檔案（由 recover-apple-music-sync.sh 透過 osascript 寫入）
+# 保留以相容於原有設計，但不再實際使用或拋出
 TOKEN_FILE = Path("data/apple_music_tokens.json")
-TOKEN_FILE_MAX_AGE_HOURS = 168  # Safari media-user-token cookie 壽命數週至數月，7 天作為保守上限
-
-TRACKS_BATCH_SIZE = 300
-SEARCH_INTERVAL = 0.15
 
 
 class AppleMusicAuthRequiredError(RuntimeError):
-    """Raised when Apple Music sync requires a manual login."""
+    """Raised when Apple Music sync requires a manual login (legacy)."""
 
 
-def _interactive_login_allowed() -> bool:
-    override = os.getenv(ALLOW_INTERACTIVE_LOGIN_ENV)
-    if override is not None:
-        return override.lower() in {"1", "true", "yes", "on"}
-    streams = (sys.stdin, sys.stdout, sys.stderr)
-    return all(getattr(stream, "isatty", lambda: False)() for stream in streams)
-
-
-# ── 文字正規化與比對 ──
-
-
-def _normalize(text: str) -> str:
-    text = text.lower()
-    text = re.sub(r"[^\w\s]", "", text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _is_match(expected: str, actual: str) -> bool:
-    a, b = _normalize(expected), _normalize(actual)
-    return a in b or b in a
-
-
-# ── Token 載入與驗證 ──
-
-
-def _load_token_file() -> tuple[str, str] | tuple[None, None]:
-    """從 recover-apple-music-sync.sh 產生的 token 檔案讀取 devToken + userToken。"""
-    try:
-        if not TOKEN_FILE.exists():
-            return None, None
-        data = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
-        extracted_at = data.get("extracted_at")
-        if extracted_at:
-            age = datetime.now(timezone.utc) - datetime.fromisoformat(extracted_at)
-            if age.total_seconds() > TOKEN_FILE_MAX_AGE_HOURS * 3600:
-                logger.debug(f"Token 檔案已過期（{age}），略過")
-                return None, None
-        dev_token = data.get("devToken")
-        user_token = data.get("userToken")
-        if dev_token and user_token:
-            logger.info(f"從 token 檔案讀取 token（extracted_at={extracted_at}）")
-            return dev_token, user_token
-    except Exception as e:
-        logger.debug(f"讀取 token 檔案失敗：{e}")
-    return None, None
-
-
-# ── Apple Music API 呼叫 ──
-
-
-def _make_headers(dev_token: str, user_token: str) -> dict[str, str]:
-    # Origin required: AMPWebPlay token is bound to music.apple.com origin
-    return {
-        "Authorization": f"Bearer {dev_token}",
-        "Music-User-Token": user_token,
-        "Origin": "https://music.apple.com",
-        "Referer": "https://music.apple.com/",
-    }
+def _load_token_file() -> tuple[str, str]:
+    """返回 Dummy tokens，用於通過 main.py 的相容性驗證。"""
+    return "dummy_dev_token", "dummy_user_token"
 
 
 def _validate_session(dev_token: str, user_token: str) -> bool:
-    """Verify tokens are usable via a lightweight API call (2 attempts for transient errors)."""
-    for attempt in range(2):
-        try:
-            resp = httpx.get(
-                f"{APPLE_MUSIC_BASE}/v1/me/library/playlists",
-                params={"limit": 1},
-                headers=_make_headers(dev_token, user_token),
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                logger.info("Session validation passed (HTTP 200)")
-                return True
-            logger.warning(
-                f"Session validation failed: HTTP {resp.status_code} | body={resp.text[:200]}"
-            )
-            return False
-        except Exception as e:
-            if attempt == 0:
-                logger.warning(
-                    f"Session validation network error, retrying: {type(e).__name__}: {e}"
-                )
-                time.sleep(2)
-            else:
-                logger.warning(
-                    f"Session validation network error: {type(e).__name__}: {e}"
-                )
-    return False
+    """Session 驗證，手動匯入模式下恆為 True。"""
+    return True
 
 
-def get_storefront(dev_token: str, user_token: str) -> str:
-    """取得用戶的 Apple Music storefront（地區代碼，如 'tw'）。"""
-    try:
-        resp = httpx.get(
-            f"{APPLE_MUSIC_BASE}/v1/me/storefront",
-            headers=_make_headers(dev_token, user_token),
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            data = resp.json().get("data", [])
-            if data:
-                sf = data[0]["id"]
-                logger.info(f"Storefront：{sf}")
-                return sf
-        logger.warning(
-            f"無法取得 storefront：HTTP {resp.status_code} | body={resp.text[:200]}，使用預設 us"
-        )
-    except Exception as e:
-        logger.warning(f"無法取得 storefront：{e}，使用預設 us")
-    return "us"
-
-
-def search_track(
-    artist: str,
-    title: str,
-    storefront: str,
-    dev_token: str,
-    user_token: str,
-) -> str | None:
-    """在 Apple Music catalog 搜尋曲目，回傳 track ID 或 None。
-
-    策略：
-    1. 精確查詢 "{title} {artist}"
-    2. 反向查詢 "{artist} {title}"
-    兩種查詢都做藝人 + 曲名雙重驗證。
-    429 Too Many Requests：依 Retry-After header 退避，最多重試 3 次。
-    """
-    headers = _make_headers(dev_token, user_token)
-    url = f"{APPLE_MUSIC_BASE}/v1/catalog/{storefront}/search"
-
-    for term in [f"{title} {artist}", f"{artist} {title}"]:
-        for attempt in range(4):
-            try:
-                resp = httpx.get(
-                    url,
-                    params={"term": term, "types": "songs", "limit": 10},
-                    headers=headers,
-                    timeout=15,
-                )
-                if resp.status_code == 429:
-                    wait = int(resp.headers.get("Retry-After", 5 * (attempt + 1)))
-                    logger.warning(f"搜尋 429 rate limit，等待 {wait}s 後重試（{attempt+1}/3）")
-                    time.sleep(wait)
-                    continue
-                if resp.status_code != 200:
-                    logger.debug(f"搜尋失敗 HTTP {resp.status_code}：{term}")
-                    break
-
-                songs = resp.json().get("results", {}).get("songs", {}).get("data", [])
-                for song in songs:
-                    attrs = song.get("attributes", {})
-                    result_title = attrs.get("name", "")
-                    result_artist = attrs.get("artistName", "")
-                    if _is_match(title, result_title) and _is_match(artist, result_artist):
-                        return song["id"]
-                break
-            except Exception as e:
-                logger.debug(f"搜尋例外（{term}）：{e}")
-                break
-
-    return None
-
-
-def _fetch_all_library_playlists(dev_token: str, user_token: str) -> list[dict]:
-    """取得用戶 library 中的所有播放清單（分頁讀取完整列表）。"""
-    headers = _make_headers(dev_token, user_token)
-    all_playlists: list[dict] = []
-    offset = 0
-    limit = 100
-    while True:
-        try:
-            resp = httpx.get(
-                f"{APPLE_MUSIC_BASE}/v1/me/library/playlists",
-                params={"limit": limit, "offset": offset},
-                headers=headers,
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                break
-            data = resp.json().get("data", [])
-            all_playlists.extend(data)
-            if len(data) < limit:
-                break
-            offset += limit
-        except Exception as e:
-            logger.warning(f"取得播放清單列表失敗：{e}")
-            break
-    return all_playlists
-
-
-def _get_existing_playlist_id(name: str, dev_token: str, user_token: str) -> str | None:
-    """從用戶 library 找出同名播放清單的 ID（取最新一個）。"""
-    playlists = _fetch_all_library_playlists(dev_token, user_token)
-    matches = [p for p in playlists if p.get("attributes", {}).get("name") == name]
-    if not matches:
-        return None
-    matches.sort(
-        key=lambda p: p.get("attributes", {}).get("dateAdded", ""),
-        reverse=True,
-    )
-    return matches[0]["id"]
-
-
-def _get_all_playlist_ids_by_name(name: str, dev_token: str, user_token: str) -> list[str]:
-    """從用戶 library 找出所有同名播放清單的 ID 列表。"""
-    playlists = _fetch_all_library_playlists(dev_token, user_token)
-    return [p["id"] for p in playlists if p.get("attributes", {}).get("name") == name]
-
-
-def list_playlists_by_prefix(
-    prefix: str, dev_token: str, user_token: str
-) -> list[dict]:
-    """列出用戶 library 中所有名稱以 prefix 開頭的播放清單，回傳含 id 與 name 的字典列表。"""
-    playlists = _fetch_all_library_playlists(dev_token, user_token)
-    return [
-        {"id": p["id"], "name": p.get("attributes", {}).get("name", "")}
-        for p in playlists
-        if p.get("attributes", {}).get("name", "").startswith(prefix)
-    ]
-
-
-def _delete_playlists_by_name_applescript(name: str) -> bool:
-    """macOS 專屬：透過 AppleScript 刪除 Music.app 中所有同名播放清單。
-
-    media-user-token 不支援 DELETE API，此為 fallback 方案。
-    """
-    if sys.platform != "darwin":
-        return False
-    safe = name.replace("\\", "\\\\").replace('"', '\\"')
-    script = f'tell application "Music" to delete (every user playlist whose name is "{safe}")'
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script], capture_output=True, text=True, timeout=30
-        )
-        return result.returncode == 0
-    except Exception as e:
-        logger.warning(f"AppleScript 刪除「{name}」失敗：{e}")
-        return False
-
-
-def _delete_playlists_by_prefix_applescript(prefix: str) -> int:
-    """macOS 專屬：透過 AppleScript 刪除所有名稱以 prefix 開頭的播放清單，回傳刪除數量。"""
-    if sys.platform != "darwin":
-        return 0
-    safe = prefix.replace("\\", "\\\\").replace('"', '\\"')
-    script = f"""
-tell application "Music"
-    set cnt to 0
-    repeat with pl in (get every user playlist whose name begins with "{safe}")
-        try
-            delete pl
-            set cnt to cnt + 1
-        end try
-    end repeat
-    return cnt
-end tell"""
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", script], capture_output=True, text=True, timeout=30
-        )
-        if result.returncode == 0:
-            return int(result.stdout.strip()) if result.stdout.strip().isdigit() else 0
-    except Exception as e:
-        logger.warning(f"AppleScript 批次刪除失敗：{e}")
-    return 0
+def list_playlists_by_prefix(prefix: str, dev_token: str, user_token: str) -> list:
+    """回傳空列表，避免觸發自動刪除邏輯。"""
+    return []
 
 
 def _delete_playlist_by_id(playlist_id: str, dev_token: str, user_token: str) -> bool:
-    """透過 API 刪除指定 ID 的播放清單。"""
-    try:
-        resp = httpx.delete(
-            f"{APPLE_MUSIC_BASE}/v1/me/library/playlists/{playlist_id}",
-            headers=_make_headers(dev_token, user_token),
-            timeout=15,
-        )
-        return resp.status_code in (200, 204)
-    except Exception as e:
-        logger.warning(f"刪除播放清單失敗：{e}")
-        return False
+    return True
 
 
-def create_playlist(name: str, dev_token: str, user_token: str) -> str | None:
-    """建立新播放清單，回傳 playlist ID 或 None。"""
-    try:
-        resp = httpx.post(
-            f"{APPLE_MUSIC_BASE}/v1/me/library/playlists",
-            json={"attributes": {"name": name}},
-            headers={
-                **_make_headers(dev_token, user_token),
-                "Content-Type": "application/json",
-            },
-            timeout=15,
-        )
-        if resp.status_code in (200, 201):
-            data = resp.json().get("data", [])
-            if data:
-                pid = data[0]["id"]
-                logger.info(f"已建立播放清單「{name}」（ID: {pid}）")
-                return pid
-        logger.error(f"建立播放清單失敗：HTTP {resp.status_code} {resp.text[:200]}")
-    except Exception as e:
-        logger.error(f"建立播放清單例外：{e}")
-    return None
+def _delete_playlists_by_prefix_applescript(prefix: str) -> int:
+    return 0
 
 
-def add_tracks_to_playlist(
-    playlist_id: str,
-    track_ids: list[str],
-    dev_token: str,
-    user_token: str,
-) -> int:
-    """分批將 catalog track 加入播放清單，回傳成功加入數量。"""
-    headers = {
-        **_make_headers(dev_token, user_token),
-        "Content-Type": "application/json",
-    }
-    added = 0
-    total = len(track_ids)
-
-    for i in range(0, total, TRACKS_BATCH_SIZE):
-        batch = track_ids[i : i + TRACKS_BATCH_SIZE]
-        try:
-            resp = httpx.post(
-                f"{APPLE_MUSIC_BASE}/v1/me/library/playlists/{playlist_id}/tracks",
-                json={"data": [{"id": tid, "type": "songs"} for tid in batch]},
-                headers=headers,
-                timeout=30,
-            )
-            if resp.status_code in (200, 201, 204):
-                added += len(batch)
-                logger.info(
-                    f"已加入第 {i + 1}–{i + len(batch)} 首"
-                    f"（共 {total} 首，累計 {added} 首）"
-                )
-            else:
-                logger.error(
-                    f"加入曲目失敗（批次 {i // TRACKS_BATCH_SIZE + 1}）："
-                    f"HTTP {resp.status_code} {resp.text[:100]}"
-                )
-        except Exception as e:
-            logger.error(f"加入曲目例外（批次 {i // TRACKS_BATCH_SIZE + 1}）：{e}")
-
-    return added
-
-
-def _import_with_tokens(
-    dev_token: str,
-    user_token: str,
-    tracks: list[tuple[str, str]],
-    name: str,
-) -> bool:
-    """搜尋曲目、建立播放清單、加入曲目（純 REST API，不依賴瀏覽器）。"""
-    storefront = get_storefront(dev_token, user_token)
-
-    print(f"\n  正在搜尋 {len(tracks)} 首曲目...")
-    found_ids: list[str] = []
-    not_found: list[tuple[str, str]] = []
-
-    for i, (artist, title) in enumerate(tracks):
-        track_id = search_track(artist, title, storefront, dev_token, user_token)
-        if track_id:
-            found_ids.append(track_id)
-        else:
-            not_found.append((artist, title))
-
-        if (i + 1) % 50 == 0:
-            logger.info(
-                f"搜尋進度：{i + 1}/{len(tracks)}"
-                f"（找到 {len(found_ids)}，未找到 {len(not_found)}）"
-            )
-        time.sleep(SEARCH_INTERVAL)
-
-    logger.info(f"搜尋完成：{len(found_ids)}/{len(tracks)} 首找到")
-    if not_found:
-        logger.warning(f"以下 {len(not_found)} 首未找到：")
-        for artist, title in not_found[:20]:
-            logger.warning(f"  {artist} — {title}")
-        if len(not_found) > 20:
-            logger.warning(f"  ...及其他 {len(not_found) - 20} 首")
-
-    if not found_ids:
-        logger.error("未找到任何曲目，中止匯入")
-        return False
-
-    old_ids = _get_all_playlist_ids_by_name(name, dev_token, user_token)
-    if old_ids:
-        api_deleted = sum(
-            1 for oid in old_ids if _delete_playlist_by_id(oid, dev_token, user_token)
-        )
-        if api_deleted < len(old_ids):
-            # media-user-token 不支援 DELETE API，fallback 到 AppleScript
-            logger.info(
-                f"API 刪除 {api_deleted}/{len(old_ids)} 個，改用 AppleScript 清理剩餘"
-            )
-            _delete_playlists_by_name_applescript(name)
-        else:
-            logger.info(f"已刪除 {api_deleted} 個舊播放清單「{name}」")
-        time.sleep(2)
-
-    playlist_id = create_playlist(name, dev_token, user_token)
-    if not playlist_id:
-        return False
-
-    added = add_tracks_to_playlist(playlist_id, found_ids, dev_token, user_token)
-
-    print(
-        f"\n  匯入完成！{added}/{len(tracks)} 首已加入"
-        f"（{len(not_found)} 首未在 Apple Music 找到）"
-    )
-    print("  請至 Apple Music 確認播放清單。\n")
-    return added > 0
-
-
-# ── 主入口 ──
+def _delete_playlists_by_name_applescript(name: str) -> bool:
+    return True
 
 
 def import_to_apple_music(
@@ -465,48 +50,58 @@ def import_to_apple_music(
     keep_browser_open: bool = False,
     playlist_name: str | None = None,
 ) -> bool:
-    """將 CSV 檔案透過 Apple Music API 直接匯入播放清單。
+    """調整為產出 Apple Music 可手動匯入檔案的機制。
 
-    Token 來源：data/apple_music_tokens.json（由 recover-apple-music-sync.sh 寫入）。
-    若 token 不存在或已過期，拋出 AppleMusicAuthRequiredError。
+    讀取傳入的 CSV 路徑，並於同目錄下生成 Tab 分隔的 Apple Music 專用 TXT 匯入檔（若尚未生成）。
+    接著在終端印出詳細的手動匯入教學。
 
     Args:
         csv_path: CSV 檔案路徑（欄位：Artist, Title）
         keep_browser_open: 已廢棄，僅保留相容性
-        playlist_name: 目標播放清單名稱（若不指定則使用 CSV 檔名）
+        playlist_name: 目標播放清單名稱
     """
-    csv_path = str(Path(csv_path).resolve())
-    if not Path(csv_path).exists():
-        logger.error(f"CSV 檔案不存在：{csv_path}")
+    csv_p = Path(csv_path).resolve()
+    if not csv_p.exists():
+        logger.error(f"CSV 檔案不存在：{csv_p}")
         return False
 
-    tracks: list[tuple[str, str]] = []
-    with open(csv_path, encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            artist = (row.get("Artist") or row.get("artist") or "").strip()
-            title = (row.get("Title") or row.get("title") or "").strip()
-            if artist and title:
-                tracks.append((artist, title))
+    name = playlist_name or csv_p.stem
+    txt_p = csv_p.parent / f"{csv_p.stem}_Apple_Music.txt"
 
-    if not tracks:
-        logger.error("CSV 無有效曲目")
-        return False
+    # 若手動匯入 TXT 尚未由 export.py 生成，在此行補充生成
+    if not txt_p.exists():
+        tracks = []
+        try:
+            with csv_p.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    artist = (row.get("Artist") or row.get("artist") or "").strip()
+                    title = (row.get("Title") or row.get("title") or "").strip()
+                    if artist and title:
+                        tracks.append((artist, title))
+            
+            with txt_p.open("w", encoding="utf-8") as f:
+                f.write("Name\tArtist\tAlbum\n")
+                for artist, title in tracks:
+                    t_title = title.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+                    t_artist = artist.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+                    f.write(f"{t_title}\t{t_artist}\t\n")
+        except Exception as e:
+            logger.error(f"自動補建 Apple Music 文字檔失敗：{e}")
+            return False
 
-    name = playlist_name or Path(csv_path).stem
-    logger.info(f"準備匯入 {len(tracks)} 首曲目至「{name}」")
+    # 輸出極度清晰、友善的手動匯入指引
+    print("\n" + "=" * 60)
+    print(" 🎵 Apple Music 歌單手動匯入指引 🎵 ")
+    print("=" * 60)
+    print(f"已成功為您產出 Apple Music 專用手動匯入文字檔：")
+    print(f"👉 {txt_p}")
+    print("\n📱 請依照以下簡單步驟完成手動匯入：")
+    print("  1. 在您的 Mac 電腦上開啟「音樂 (Music)」App (或 Windows 上的 iTunes)。")
+    print("  2. 在上方選單中，選擇「檔案」 -> 「資料庫」 -> 「匯入播放清單...」。")
+    print("  3. 選擇並打開上述的文字檔：")
+    print(f"     [{txt_p.name}]")
+    print(f"  4. 恭喜！音樂 App 將會自動搜尋匹配並建立名為「{name}」的播放清單！")
+    print("=" * 60 + "\n")
 
-    dev_token, user_token = _load_token_file()
-    if not dev_token or not user_token:
-        raise AppleMusicAuthRequiredError(
-            "Apple Music token 不存在或已過期。"
-            " 請在終端執行 ./recover-apple-music-sync.sh 重新取得 token。"
-        )
-
-    if not _validate_session(dev_token, user_token):
-        raise AppleMusicAuthRequiredError(
-            "Apple Music token 驗證失敗（已過期或被撤銷）。"
-            " 請在終端執行 ./recover-apple-music-sync.sh 重新取得 token。"
-        )
-
-    logger.info("Token 驗證通過，開始匯入...")
-    return _import_with_tokens(dev_token, user_token, tracks, name)
+    return True

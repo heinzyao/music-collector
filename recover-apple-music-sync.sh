@@ -1,16 +1,5 @@
 #!/usr/bin/env bash
-# Music Collector — Apple Music Token 取得與同步
-#
-# 流程（Safari cookie 路線）：
-#   1. 從 Safari 的 music.apple.com 分頁讀取 media-user-token cookie
-#   2. 從 Apple Music Vite bundle 提取 developerToken
-#   3. Token 儲存至 data/apple_music_tokens.json
-#   4. 執行完整同步
-#
-# 前置條件（一次性設定）：
-#   - Safari → 偏好設定 → 進階 → 勾選「在選單列中顯示開發選單」
-#   - Safari → 開發 → 勾選「允許 JavaScript 從 Apple 事件執行」
-#   - 在 Safari 開啟 music.apple.com 並完成 Apple ID 登入
+# Music Collector — Apple Music Token 取得與同步 (已升級為手動匯出)
 #
 # 用法：
 #   ./recover-apple-music-sync.sh
@@ -19,36 +8,18 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-SUMMARY_LOG="$(pwd)/data/apple_music_recovery.log"
-mkdir -p "$(dirname "$SUMMARY_LOG")"
+printf "\n============================================================\n"
+printf "💡 溫馨提示：Apple Music 匯入機制已調整為「手動匯出」模式 💡\n"
+printf "============================================================\n"
+printf "本專案已移除複雜且容易過期的 Apple Music API 自動登入與 cookie 同步。\n"
+printf "現在已不再需要調整 Safari 的 JavaScript 設定，也不再需要下載 Token！\n\n"
+printf "新機制將直接為您產出 macOS 音樂 (Music) App 可完美識別的手動匯入文字檔 (.txt)。\n\n"
+printf "👉 您可以直接執行以下同步腳本來生成匯入檔案：\n"
+printf "   ./sync-apple-music.sh\n"
+printf "============================================================\n\n"
 
-log_summary() {
-  printf "%s %s\n" "$(date '+%Y-%m-%d %H:%M:%S')" "$1" | tee -a "$SUMMARY_LOG"
-}
-
-log_summary "[INFO] Recovery flow started"
-
-printf "\n[1/2] Starting Apple Music authorization (local auth server)...\n\n"
-
-if PYTHONPATH=src uv run python -m music_collector.apple_music.auth_server; then
-  log_summary "[INFO] Apple Music token obtained successfully"
-else
-  log_summary "[ERROR] Failed to obtain Apple Music token"
-  printf "\n[ERROR] 無法從 Safari 讀取 Apple Music Token。\n"
-  printf "\n請確認以下前置條件後重試：\n"
-  printf "  1. 在 Safari 開啟 https://music.apple.com 並完成 Apple ID 登入\n"
-  printf "  2. Safari → 偏好設定 → 進階 → 已勾選「在選單列中顯示開發選單」\n"
-  printf "  3. Safari → 開發 → 已勾選「允許 JavaScript 從 Apple 事件執行」\n"
-  printf "\n確認後再次執行 ./recover-apple-music-sync.sh\n"
-  exit 1
-fi
-
-printf "\n[2/2] Starting Apple Music sync...\n\n"
-if ./sync-apple-music.sh; then
-  log_summary "[INFO] Apple Music sync completed successfully"
-  printf "\nRecovery flow completed successfully.\n"
-else
-  log_summary "[ERROR] Apple Music sync failed"
-  printf "\nSync failed. Please review the output above for details.\n"
-  exit 1
+read -p "是否直接執行 ./sync-apple-music.sh 開始產出歌單？(Y/N): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+  exec ./sync-apple-music.sh
 fi

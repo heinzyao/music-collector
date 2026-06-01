@@ -530,6 +530,11 @@ def main() -> None:
         help="顯示各擷取器來源的健康狀態報告",
     )
     parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="清理快取、暫存、舊日誌、匯出檔案，優化資料庫與 Playwright 瀏覽器快取",
+    )
+    parser.add_argument(
         "--merge-apple-music",
         action="store_true",
         dest="merge_apple_music",
@@ -571,6 +576,9 @@ def main() -> None:
         raise SystemExit(0 if sync_current_playlist_to_apple_music() else 1)
     elif args.health:
         show_health()
+    elif args.clean:
+        from .clean import clean_all
+        clean_all(dry_run=args.dry_run)
     elif args.merge_apple_music:
         from .apple_music import AppleMusicAuthRequiredError
 

@@ -236,28 +236,18 @@ def _build_apple_music_message(
 ) -> str:
     """組合 Apple Music 匯入通知文字。"""
     if success:
-        msg = "🍎 Apple Music 匯入完成\n"
+        name = playlist_name or "Critics' Picks"
+        msg = "🍎 Apple Music 手動匯入檔案已產出\n"
         if playlist_name:
             msg += f"\n播放清單：{playlist_name}"
         if track_count is not None:
             msg += f"\n曲目數量：{track_count} 首"
-        msg += "\n\n請至 Apple Music 確認播放清單。"
+        msg += f"\n\n請前往專案 data/exports/ 資料夾選取「{name}_Apple_Music.txt」，手動在 macOS 音樂 App 中選擇「檔案」->「資料庫」->「匯入播放清單...」即可完成匯入。"
     else:
-        is_auth_required = bool(error and "非互動環境" in error)
-
-        if is_auth_required:
-            msg = "🍎 Apple Music 已略過\n"
-            if playlist_name:
-                msg += f"\n播放清單：{playlist_name}"
-            msg += "\n原因：Apple Music 需要重新登入，目前排程不支援互動式登入。"
-            msg += (
-                "\n\n請雙擊 ./apple-music-tools.command 完成登入，下次排程將自動同步。"
-            )
-        else:
-            msg = "🍎 Apple Music 匯入失敗\n"
-            if error:
-                msg += f"\n原因：{error}"
-            msg += "\n\n請檢查日誌或手動匯入。"
+        msg = "🍎 Apple Music 檔案產出失敗\n"
+        if error:
+            msg += f"\n原因：{error}"
+        msg += "\n\n請檢查執行日誌。"
     return msg
 
 

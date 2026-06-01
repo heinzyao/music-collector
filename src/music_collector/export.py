@@ -22,16 +22,16 @@ EXPORT_DIR = BACKUP_DIR.parent / "exports"
 
 
 def export_combined_spotify(playlist_name: str | None = None) -> Path | None:
-    """合併 Spotify 主歌單與所有歸檔歌單，匯出為單一 CSV。
+    """合併 Spotify 主歌單與所有歸檔歌單，匯出為單一 CSV 與 Apple Music 手動匯入 TXT 檔。
 
     用於一次性復原 Apple Music 累積歌單：將主歌單（當季）與所有
     「Critics' Picks — YYYY QN」歸檔歌單的曲目合併去重後匯出。
 
     Args:
-        playlist_name: CSV 檔名／Apple Music 歌單名稱
+        playlist_name: 檔名／Apple Music 歌單名稱
 
     Returns:
-        匯出檔案路徑，或 None（若失敗）
+        匯出 CSV 檔案路徑，或 None（若失敗）
     """
     name = playlist_name or PLAYLIST_NAME
 
@@ -42,23 +42,24 @@ def export_combined_spotify(playlist_name: str | None = None) -> Path | None:
         print(f"錯誤：無法連線 Spotify — {e}")
         return None
 
-    def _fetch_tracks(pid: str) -> list[tuple[str, str]]:
-        tracks: list[tuple[str, str]] = []
-        results = sp.playlist_items(pid, fields="items(track(name,artists(name))),next")
+    def _fetch_tracks(pid: str) -> list[tuple[str, str, str]]:
+        tracks: list[tuple[str, str, str]] = []
+        results = sp.playlist_items(pid, fields="items(track(name,album(name),artists(name))),next")
         while results:
             for item in results["items"]:
                 track = item.get("track")
                 if not track:
                     continue
                 artist = ", ".join(a["name"] for a in track["artists"])
-                tracks.append((artist, track["name"]))
+                album = track.get("album", {}).get("name", "") if track.get("album") else ""
+                tracks.append((artist, track["name"], album))
             if results.get("next"):
                 results = sp.next(results)
             else:
                 break
         return tracks
 
-    all_tracks: list[tuple[str, str]] = []
+    all_tracks: list[tuple[str, str, str]] = []
 
     main_id = get_or_create_playlist(sp, name=name)
     main_tracks = _fetch_tracks(main_id)
@@ -84,42 +85,51 @@ def export_combined_spotify(playlist_name: str | None = None) -> Path | None:
         return None
 
     seen: set[tuple[str, str]] = set()
-    unique: list[tuple[str, str]] = []
-    for artist, title in all_tracks:
+    unique: list[tuple[str, str, str]] = []
+    for artist, title, album in all_tracks:
         key = (artist.lower(), title.lower())
         if key not in seen:
             seen.add(key)
-            unique.append((artist, title))
+            unique.append((artist, title, album))
 
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
     export_path = EXPORT_DIR / f"{safe_name}.csv"
+    export_txt_path = EXPORT_DIR / f"{safe_name}_Apple_Music.txt"
 
+    # 寫入 CSV
     with export_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Artist", "Title"])
-        for artist, title in unique:
+        for artist, title, album in unique:
             writer.writerow([artist, title])
+
+    # 寫入 Apple Music 手動匯入 TXT (Tab-separated)
+    with export_txt_path.open("w", encoding="utf-8") as f:
+        f.write("Name\tArtist\tAlbum\n")
+        for artist, title, album in unique:
+            t_title = title.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+            t_artist = artist.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+            t_album = album.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+            f.write(f"{t_title}\t{t_artist}\t{t_album}\n")
 
     print(
         f"\n✅ 已合併匯出 {len(unique)} 首曲目（原始 {len(all_tracks)} 首，去重後 {len(unique)} 首）"
     )
-    print(f"   {export_path}")
+    print(f"   CSV 檔案路徑：{export_path}")
+    print(f"   Apple Music 手動匯入文字檔路徑：{export_txt_path}")
 
     return export_path
 
 
 def export_from_spotify(playlist_name: str | None = None) -> Path | None:
-    """直接從 Spotify API 讀取歌單曲目並匯出為 CSV。
-
-    相比 export_csv()（從備份 JSON 讀取），此函式使用 Spotify 官方元資料，
-    確保 artist/title 與 Spotify 一致，提升 TuneMyMusic 匯入 Apple Music 的匹配率。
+    """直接從 Spotify API 讀取歌單曲目並匯出為 CSV 與 Apple Music 手動匯入 TXT。
 
     Args:
-        playlist_name: 播放清單名稱（同時用於搜尋 Spotify 歌單與 CSV 檔名）
+        playlist_name: 播放清單名稱
 
     Returns:
-        匯出檔案路徑，或 None（若失敗）
+        匯出 CSV 檔案路徑，或 None（若失敗）
     """
     name = playlist_name or PLAYLIST_NAME
 
@@ -132,10 +142,10 @@ def export_from_spotify(playlist_name: str | None = None) -> Path | None:
         return None
 
     # 分頁取得所有曲目
-    tracks: list[tuple[str, str]] = []
+    tracks: list[tuple[str, str, str]] = []
     results = sp.playlist_items(
         playlist_id,
-        fields="items(track(name,artists(name))),next",
+        fields="items(track(name,album(name),artists(name))),next",
     )
     while results:
         for item in results["items"]:
@@ -144,7 +154,8 @@ def export_from_spotify(playlist_name: str | None = None) -> Path | None:
                 continue
             artist = ", ".join(a["name"] for a in track["artists"])
             title = track["name"]
-            tracks.append((artist, title))
+            album = track.get("album", {}).get("name", "") if track.get("album") else ""
+            tracks.append((artist, title, album))
         if results.get("next"):
             results = sp.next(results)
         else:
@@ -156,29 +167,40 @@ def export_from_spotify(playlist_name: str | None = None) -> Path | None:
 
     # 去重（case-insensitive）
     seen: set[tuple[str, str]] = set()
-    unique: list[tuple[str, str]] = []
-    for artist, title in tracks:
+    unique: list[tuple[str, str, str]] = []
+    for artist, title, album in tracks:
         key = (artist.lower(), title.lower())
         if key not in seen:
             seen.add(key)
-            unique.append((artist, title))
+            unique.append((artist, title, album))
 
     # 建立匯出目錄與檔案
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
     export_path = EXPORT_DIR / f"{safe_name}.csv"
+    export_txt_path = EXPORT_DIR / f"{safe_name}_Apple_Music.txt"
 
     # 寫入 CSV
     with export_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["Artist", "Title"])
-        for artist, title in unique:
+        for artist, title, album in unique:
             writer.writerow([artist, title])
+
+    # 寫入 Apple Music 手動匯入 TXT (Tab-separated)
+    with export_txt_path.open("w", encoding="utf-8") as f:
+        f.write("Name\tArtist\tAlbum\n")
+        for artist, title, album in unique:
+            t_title = title.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+            t_artist = artist.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+            t_album = album.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+            f.write(f"{t_title}\t{t_artist}\t{t_album}\n")
 
     print(
         f"\n✅ 已從 Spotify 匯出 {len(unique)} 首曲目（原始 {len(tracks)} 首，去重後 {len(unique)} 首）"
     )
-    print(f"   {export_path}")
+    print(f"   CSV 檔案路徑：{export_path}")
+    print(f"   Apple Music 手動匯入文字檔路徑：{export_txt_path}")
 
     return export_path
 
