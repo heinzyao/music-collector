@@ -94,7 +94,7 @@ def import_to_apple_music(
     print("\n" + "=" * 60)
     print(" 🎵 Apple Music 歌單手動匯入指引 🎵 ")
     print("=" * 60)
-    print(f"已成功為您產出 Apple Music 專用手動匯入文字檔：")
+    print("已成功為您產出 Apple Music 專用手動匯入文字檔：")
     print(f"👉 {txt_p}")
     print("\n📱 請依照以下簡單步驟完成手動匯入：")
     print("  1. 在您的 Mac 電腦上開啟「音樂 (Music)」App (或 Windows 上的 iTunes)。")

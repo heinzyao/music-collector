@@ -2,7 +2,6 @@
 
 import csv
 from pathlib import Path
-import pytest
 
 from music_collector.apple_music import api
 

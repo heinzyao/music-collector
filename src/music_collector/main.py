@@ -15,7 +15,6 @@
 import argparse
 import asyncio
 import logging
-import time
 from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
