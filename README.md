@@ -53,7 +53,7 @@ The following workflow is executed automatically every day:
 #### Requirements
 
 - Python 3.14+
-- [uv](https://docs.astral.sh/uv/) Toolkit / Dependency Manager
+- [uv](https://docs.astral.sh/uv/)
 - Spotify Developer Dashboard credentials ([Register Here](https://developer.spotify.com/dashboard))
 
 #### Installation
@@ -66,7 +66,7 @@ uv sync
 
 #### Configuring Credentials
 
-1. Clone `.env.example` as `.env`:
+1. Copy `.env.example` to `.env`:
 
 ```bash
 cp .env.example .env
@@ -83,13 +83,13 @@ cp .env.example .env
    - `SOURCE_FAILURE_THRESHOLD`: Consecutive failures before marking a source as unhealthy (default: 3).
    - `SOURCE_EMPTY_DAYS_THRESHOLD`: Consecutive days with zero tracks before warning (default: 5).
 
-4. Initial Spotify OAuth flow (A browser will be invoked to securely log in):
+5. Run the one-time Spotify OAuth flow (a browser window will open for login):
 
 ```bash
 PYTHONPATH=src uv run python auth.py
 ```
 
-#### Executing the script
+#### Usage
 
 ```bash
 # Complete flow (Parse + Spotify Upload + Backup + Notify)
