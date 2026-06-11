@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from .config import PROJECT_ROOT, DATA_DIR, DB_PATH, SPOTIFY_CACHE_PATH, ENABLE_PLAYWRIGHT
+from .config import PROJECT_ROOT, DATA_DIR, DB_PATH, ENABLE_PLAYWRIGHT
 
 # 定義快取與暫存目錄
 CACHE_DIRS = [
@@ -282,9 +282,9 @@ def clean_playwright_browsers(dry_run: bool = False) -> tuple[int, int]:
     # 提醒使用者可以考慮完全移除 ms-playwright 快取以節省大量空間。
     if not ENABLE_PLAYWRIGHT and total_size > freed_bytes:
         remaining_size = total_size - freed_bytes
-        print(f"\n   💡 溫馨提示：目前設定檔中並未啟用 Playwright 瀏覽器渲染 (ENABLE_PLAYWRIGHT=false)。")
+        print("\n   💡 溫馨提示：目前設定檔中並未啟用 Playwright 瀏覽器渲染 (ENABLE_PLAYWRIGHT=false)。")
         print(f"      Playwright 目前仍佔用 {format_size(remaining_size)} 的空間。")
-        print(f"      若您平時不需要使用 Playwright，可手動執行以下命令完全清空它來釋放空間：")
+        print("      若您平時不需要使用 Playwright，可手動執行以下命令完全清空它來釋放空間：")
         print(f"      rm -rf \"{pw_cache}\"")
 
     return cleaned_count, freed_bytes
@@ -292,12 +292,10 @@ def clean_playwright_browsers(dry_run: bool = False) -> tuple[int, int]:
 def clean_all(dry_run: bool = False, keep_days: int = 3) -> None:
     """執行完整專案清理流程。"""
     action_str = " (預演模式，不實際刪除檔案)" if dry_run else ""
-    print(f"============================================================")
+    print("============================================================")
     print(f"⚡ 開始執行 Music Collector 磁碟優化與清理程序{action_str} ⚡")
-    print(f"============================================================")
+    print("============================================================")
 
-    initial_size = get_dir_size(PROJECT_ROOT)
-    
     # 執行各步驟
     cleaned_caches, freed_caches = clean_python_caches(dry_run)
     print()
@@ -310,21 +308,21 @@ def clean_all(dry_run: bool = False, keep_days: int = 3) -> None:
 
     total_freed = freed_caches + freed_logs + freed_db + freed_pw
     
-    print(f"============================================================")
-    print(f"🏁 清理完成！報告總結：")
-    print(f"============================================================")
+    print("============================================================")
+    print("🏁 清理完成！報告總結：")
+    print("============================================================")
     print(f"   - Python 與工具快取：清理了 {cleaned_caches} 個目錄/檔案，釋放 {format_size(freed_caches)}")
     print(f"   - 系統日誌與歷史匯出：清理了 {cleaned_logs} 個檔案，釋放 {format_size(freed_logs)}")
     print(f"   - SQLite 資料庫優化 ：完成對 tracks.db 的優化與壓縮，釋放 {format_size(freed_db)}")
     print(f"   - Playwright 瀏覽器 ：清理了 {cleaned_pw} 個舊版瀏覽器複本，釋放 {format_size(freed_pw)}")
-    print(f"------------------------------------------------------------")
+    print("------------------------------------------------------------")
     if dry_run:
         print(f"   💡 預計總共可釋放空間：{format_size(total_freed)}")
     else:
         print(f"   🎉 實際總共釋放空間：{format_size(total_freed)}")
         final_size = get_dir_size(PROJECT_ROOT)
         print(f"   📦 專案目前占用空間：{format_size(final_size)}")
-    print(f"============================================================")
+    print("============================================================")
 
 if __name__ == "__main__":
     import argparse

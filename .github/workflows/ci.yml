@@ -22,7 +22,7 @@ jobs:
         run: uv sync --extra test
 
       - name: Lint with ruff
-        run: uv run ruff check src/ tests/
+        run: uvx ruff check src/ tests/
 
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
