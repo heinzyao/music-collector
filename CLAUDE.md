@@ -43,6 +43,9 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 # Apple Music 同步（手動，互動環境）
 ./sync-apple-music.sh
 
+# Apple Music 同步（僅驗證 TXT 匯出，不發 LINE 通知）
+./sync-apple-music.sh --dry-run
+
 # Apple Music Session 恢復（首次登入或 session 過期）
 ./recover-apple-music-sync.sh
 ```
