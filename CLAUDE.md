@@ -27,7 +27,8 @@ uv sync --extra test
 # 查看近期蒐集紀錄
 ./run.sh --recent 7
 
-# 合併 Apple Music 歌單（清除所有 Critics' Picks 歌單，從 Spotify 重新匯入為單一歌單）
+# 合併匯出 Apple Music 手動匯入檔（主歌單 + 所有歸檔歌單去重，產出單一 TXT）
+# 註：自動刪除舊歌單的邏輯已停用，此指令現與 --apple-music 產出相同的手動匯入檔
 ./run.sh --merge-apple-music
 
 # 執行測試（全部）
@@ -57,17 +58,13 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
 - `src/music_collector/export.py` — 匯出為 CSV/TXT；`export_combined_spotify()` 合併主歌單 + 歸檔歌單並去重匯出，供 Apple Music 使用
-- `src/music_collector/apple_music/` — Apple Music 自動匯入（模組化套件）
-  - `api.py` — **主要入口**：直接呼叫 Apple Music REST API（搜尋曲目、建立/刪除播放清單、分批加入曲目）
-  - `browser.py` — Chrome driver 建立與反偵測措施，`create_driver()` 使用持久化 `data/browser_profile/`
-  - `playlist.py` — 播放清單管理（MusicKit JS API + AppleScript fallback）
-  - `transfer.py` — TuneMyMusic 自動化轉移（備援方案，不在日常排程中使用）
-- `src/music_collector/tunemymusic.py` — 向後相容，重新匯出 `apple_music` 套件
+- `src/music_collector/apple_music/` — Apple Music 匯入（手動 TXT 匯出）
+  - `api.py` — **唯一模組**：`import_to_apple_music()` 由 CSV 產出 Tab 分隔的手動匯入 TXT 並印出匯入指引。其餘 `_load_token_file()`、`_validate_session()`、`list_playlists_by_prefix()`、`AppleMusicAuthRequiredError` 等為保留相容性的 no-op stub
 - `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
 - `src/music_collector/main.py` — 主流程與 CLI
-- `tests/` — 101 項測試（pytest + respx mock）
+- `tests/` — 88 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
 
@@ -101,71 +98,34 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 4. 在 `tests/scrapers/` 新增對應測試
 5. 用 `--dry-run` 測試
 
-## Apple Music 直接 API 匯入
+## Apple Music 匯入（手動 TXT 匯出）
+
+> **重要**：先前的 Apple Music REST API 自動同步（Safari cookie token、`auth_server.py`、瀏覽器自動化）已移除。現行機制改為產出可手動匯入的文字檔，不再需要 token 或 Safari 設定。`api.py` 中殘留的 `_load_token_file()`、`_validate_session()`、`list_playlists_by_*()`、`_delete_*()`、`AppleMusicAuthRequiredError` 皆為保留相容性的 no-op stub（恆回傳成功／空值，不會拋出）。
 
 ### 流程架構（`api.py`）
 
 ```
-讀取 data/apple_music_tokens.json
-→ _validate_session()（輕量 API 驗證）
-→ 逐一搜尋 (artist, title) → 取得 catalog track ID
-→ 刪除同名舊歌單 → 建立新播放清單 → 分批 POST 加入曲目（每批 ≤300）
+export_combined_spotify() 合併主歌單 + 所有歸檔歌單並去重
+→ 產出 data/exports/<歌單名>.csv 與 <歌單名>_Apple_Music.txt（Tab 分隔）
+→ import_to_apple_music() 確保 TXT 已生成，並在終端印出手動匯入指引
 ```
 
-`api.py` 不含任何 Selenium 或瀏覽器自動化。所有 API 呼叫均為純 `httpx` REST 請求。
+`api.py` 不含任何 API 呼叫、Selenium、token 或瀏覽器自動化。
 
-### Token 取得（`auth_server.py`）
+### 手動匯入步驟
 
-`auth_server.py` 實作 Safari cookie 讀取授權（macOS 主路線）：
-
-1. AppleScript 呼叫 Safari 對 `music.apple.com` 分頁執行 `document.cookie`
-2. 正則擷取 `media-user-token` 值（即 `musicUserToken`）
-3. 從 `music.apple.com` Vite JS bundle 提取 `developerToken`
-4. 合併儲存至 `data/apple_music_tokens.json`
-
-**前置條件（一次性）**：
-- Safari → 偏好設定 → 進階 → 勾選「在選單列中顯示開發選單」
-- Safari → 開發 → 勾選「允許 JavaScript 從 Apple 事件執行」
-- 在 Safari 開啟 `music.apple.com` 並完成 Apple ID 登入
-
-### Token 驗證
-
-- `_load_token_file()`：讀取 token 檔，超過 `TOKEN_FILE_MAX_AGE_HOURS`（168 小時 / 7 天）視為過期
-- `_validate_session()`：打 `GET /v1/me/library/playlists` 驗證（最多 2 次重試）
-- Token 無效 → 拋出 `AppleMusicAuthRequiredError`，排程自動跳過並發 LINE 通知
-
-### API 呼叫注意事項
-
-- 所有 API 請求需帶 `Origin: https://music.apple.com`（AMPWebPlay token 的 origin 限制）
-- 搜尋 429 Too Many Requests：自動讀取 `Retry-After` header 退避重試，最多 3 次
-- `search_track()` 使用雙查詢策略：`"{title} {artist}"` + `"{artist} {title}"`，均驗證藝人 + 曲名
-- **DELETE 限制**：`media-user-token`（Safari cookie）不支援 `DELETE /v1/me/library/playlists/{id}`，固定回傳 401。`api.py` 自動 fallback 至 `_delete_playlists_by_name_applescript()`（osascript 操作 Music.app），在 macOS 上正常運作
-- **歌單合併**：`--merge-apple-music` 指令會列出所有「Critics' Picks」前綴歌單，嘗試 API 刪除後改用 AppleScript fallback，再從 Spotify 合併匯入成單一歌單
-
-### 非互動環境偵測
-
-`_interactive_login_allowed()` 檢查三個 stdio stream 是否全為 TTY。排程環境（launchd 將 stdio 重導至 log 檔）回傳 False，立即拋出 `AppleMusicAuthRequiredError`，不阻塞排程。可用 `MUSIC_COLLECTOR_ALLOW_INTERACTIVE_APPLE_LOGIN=1` 覆寫。
+1. 執行 `./sync-apple-music.sh`（或排程的 `--apple-music`）產出 `data/exports/<歌單名>_Apple_Music.txt`
+2. macOS「音樂 (Music)」App →「檔案」→「資料庫」→「匯入播放清單...」
+3. 選取該 TXT，Music App 自動比對曲庫並建立同名播放清單
 
 ### 已知限制
 
-- Token（Safari cookie）有效期數週至數月，到期需重新執行 `./recover-apple-music-sync.sh`
-- Apple Music API 每次 POST 最多加入 300 首，超過需分批
-- `data/apple_music_tokens.json` 含敏感 token，不可推送至 Git
+- Music App 依曲名／藝人字串比對，個別冷門曲目可能匹配失敗
+- `data/`（含匯出檔）不推送至 Git
 
 ## Apple Music Session 恢復流程
 
-Session 過期時，排程會自動跳過並發 LINE 通知。手動恢復步驟：
-
-```bash
-./recover-apple-music-sync.sh
-```
-
-流程：
-1. 確認 Safari 已開啟 `music.apple.com` 並登入 Apple ID
-2. `auth_server.py` 透過 AppleScript 讀取 Safari 的 `media-user-token` cookie
-3. 從 Vite bundle 提取 `developerToken`
-4. Token 儲存至 `data/apple_music_tokens.json`
-5. 自動執行完整同步（`./sync-apple-music.sh`）
+已無 session／token 概念。`./recover-apple-music-sync.sh` 現僅提示改用手動匯出模式，並可直接轉呼 `./sync-apple-music.sh` 產出匯入檔。
 
 ## 自動排程（launchd）
 
