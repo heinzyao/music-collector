@@ -6,4 +6,4 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-PYTHONPATH=src exec uv run python -m music_collector --apple-music
+PYTHONPATH=src exec uv run python -m music_collector --apple-music "$@"

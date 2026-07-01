@@ -87,23 +87,29 @@ def _notify_apple_music(
         logger.warning(f"Apple Music 通知失敗：{e}")
 
 
-def _sync_to_apple_music(playlist_name: str) -> tuple[bool, str]:
+def _sync_to_apple_music(playlist_name: str, notify: bool = True) -> tuple[bool, str]:
     """匯出合併歌單並匯入 Apple Music，處理通知與例外。
 
     回傳 (是否成功, 狀態訊息)。狀態訊息供通知摘要使用。
+    notify=False 時跳過所有 LINE/通知（供 --dry-run 使用）。
     """
     from .apple_music import AppleMusicAuthRequiredError, import_to_apple_music
+
+    # ponytail: 局部包裝，notify=False 時直接吞掉，省得每個呼叫點都加 if
+    def maybe_notify(*a, **kw):
+        if notify:
+            _notify_apple_music(*a, **kw)
 
     try:
         logger.info("開始 Apple Music 同步流程...")
         csv_path = export_combined_spotify(playlist_name=playlist_name)
         if not csv_path:
-            _notify_apple_music(False, error="匯出 CSV 失敗")
+            maybe_notify(False, error="匯出 CSV 失敗")
             return False, "匯出 CSV 失敗"
 
         track_count = _count_csv_tracks(csv_path)
         success = import_to_apple_music(str(csv_path), playlist_name=playlist_name)
-        _notify_apple_music(
+        maybe_notify(
             success,
             track_count=track_count,
             playlist_name=playlist_name,
@@ -112,11 +118,11 @@ def _sync_to_apple_music(playlist_name: str) -> tuple[bool, str]:
         return success, "匯入成功" if success else "匯入失敗"
     except AppleMusicAuthRequiredError as e:
         logger.warning(str(e))
-        _notify_apple_music(False, error=str(e))
+        maybe_notify(False, error=str(e))
         return False, f"略過同步（{e}）"
     except Exception as e:
         logger.error(f"Apple Music 同步發生錯誤：{e}")
-        _notify_apple_music(False, error=str(e))
+        maybe_notify(False, error=str(e))
         return False, f"發生錯誤 ({e})"
 
 
@@ -400,14 +406,15 @@ def check_apple_music_session() -> bool:
     return _validate_session(dev_token, user_token)
 
 
-def sync_current_playlist_to_apple_music() -> bool:
+def sync_current_playlist_to_apple_music(notify: bool = True) -> bool:
     """匯出目前 Spotify 主歌單並同步至 Apple Music。
 
     排程環境下會自動偵測 session 是否可用：
     - session 有效 → 靜默同步，LINE 通知結果
     - session 過期 → 跳過同步，LINE 通知需重新登入
+    notify=False 時跳過通知（供 --dry-run 使用）。
     """
-    success, _ = _sync_to_apple_music(PLAYLIST_NAME)
+    success, _ = _sync_to_apple_music(PLAYLIST_NAME, notify=notify)
     return success
 
 
@@ -522,7 +529,8 @@ def main() -> None:
     elif args.check_apple_music_session:
         raise SystemExit(0 if check_apple_music_session() else 1)
     elif args.apple_music:
-        raise SystemExit(0 if sync_current_playlist_to_apple_music() else 1)
+        ok = sync_current_playlist_to_apple_music(notify=not args.dry_run)
+        raise SystemExit(0 if ok else 1)
     elif args.health:
         show_health()
     elif args.clean:
