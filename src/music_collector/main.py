@@ -8,7 +8,7 @@
     python -m music_collector --backup Q1  # 顯示指定季度備份內容
     python -m music_collector --export Q1  # 匯出 Q1 為 CSV（供 Apple Music 匯入）
     python -m music_collector --export Q1 --format txt  # 匯出為純文字
-    python -m music_collector --import Q1  # 完整執行（擷取 + Spotify + Apple Music 匯入）
+    python -m music_collector --apple-music  # 完整執行（擷取 + Spotify + Apple Music 匯入）
     python -m music_collector --reset      # 清除歌單與資料庫，重新蒐集
 """
 
@@ -66,6 +66,58 @@ def _count_csv_tracks(csv_path: Path) -> int | None:
         return max(len(lines) - 1, 0)  # 扣除標題列
     except Exception:
         return None
+
+
+def _notify_apple_music(
+    success: bool,
+    *,
+    track_count: int | None = None,
+    playlist_name: str | None = None,
+    error: str | None = None,
+) -> None:
+    """發送 Apple Music 通知，吞掉通知本身的例外。"""
+    try:
+        send_apple_music_notification(
+            success=success,
+            track_count=track_count,
+            playlist_name=playlist_name,
+            error=error,
+        )
+    except Exception as e:
+        logger.warning(f"Apple Music 通知失敗：{e}")
+
+
+def _sync_to_apple_music(playlist_name: str) -> tuple[bool, str]:
+    """匯出合併歌單並匯入 Apple Music，處理通知與例外。
+
+    回傳 (是否成功, 狀態訊息)。狀態訊息供通知摘要使用。
+    """
+    from .apple_music import AppleMusicAuthRequiredError, import_to_apple_music
+
+    try:
+        logger.info("開始 Apple Music 同步流程...")
+        csv_path = export_combined_spotify(playlist_name=playlist_name)
+        if not csv_path:
+            _notify_apple_music(False, error="匯出 CSV 失敗")
+            return False, "匯出 CSV 失敗"
+
+        track_count = _count_csv_tracks(csv_path)
+        success = import_to_apple_music(str(csv_path), playlist_name=playlist_name)
+        _notify_apple_music(
+            success,
+            track_count=track_count,
+            playlist_name=playlist_name,
+            error=None if success else "自動匯入流程失敗",
+        )
+        return success, "匯入成功" if success else "匯入失敗"
+    except AppleMusicAuthRequiredError as e:
+        logger.warning(str(e))
+        _notify_apple_music(False, error=str(e))
+        return False, f"略過同步（{e}）"
+    except Exception as e:
+        logger.error(f"Apple Music 同步發生錯誤：{e}")
+        _notify_apple_music(False, error=str(e))
+        return False, f"發生錯誤 ({e})"
 
 
 def _fetch_from_scraper(scraper) -> tuple[str, list[Track], str | None]:
@@ -215,47 +267,7 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     # Apple Music 自動匯入（無論是否有新曲目都執行，確保 Apple Music 與 Spotify 同步）
     apple_music_status = None
     if sync_apple_music:
-        from .apple_music import AppleMusicAuthRequiredError, import_to_apple_music
-
-        try:
-            logger.info("開始 Apple Music 同步流程...")
-            csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
-
-            if csv_path:
-                track_count = _count_csv_tracks(csv_path)
-                success = import_to_apple_music(
-                    str(csv_path), playlist_name=PLAYLIST_NAME
-                )
-                apple_music_status = "匯入成功" if success else "匯入失敗"
-                try:
-                    send_apple_music_notification(
-                        success=success,
-                        track_count=track_count,
-                        playlist_name=PLAYLIST_NAME,
-                        error=None if success else "自動匯入流程失敗",
-                    )
-                except Exception as e:
-                    logger.warning(f"Apple Music 通知失敗：{e}")
-            else:
-                apple_music_status = "匯出 CSV 失敗"
-                try:
-                    send_apple_music_notification(success=False, error="匯出 CSV 失敗")
-                except Exception as e:
-                    logger.warning(f"Apple Music 通知失敗：{e}")
-        except AppleMusicAuthRequiredError as e:
-            logger.warning(str(e))
-            apple_music_status = f"略過同步（{e}）"
-            try:
-                send_apple_music_notification(success=False, error=str(e))
-            except Exception as ne:
-                logger.warning(f"Apple Music 通知失敗：{ne}")
-        except Exception as e:
-            logger.error(f"Apple Music 同步發生錯誤：{e}")
-            apple_music_status = f"發生錯誤 ({e})"
-            try:
-                send_apple_music_notification(success=False, error=str(e))
-            except Exception as ne:
-                logger.warning(f"Apple Music 通知失敗：{ne}")
+        _, apple_music_status = _sync_to_apple_music(PLAYLIST_NAME)
 
     # 季度歸檔：在 Apple Music 同步完成後，才將前季曲目從 Spotify 主歌單移至歸檔清單
     # 這確保 Apple Music 匯出時能取得完整歌單（含前季曲目），維持累積歌單模式
@@ -371,27 +383,8 @@ def merge_apple_music() -> bool:
         print(f"Apple Music 中未找到任何「{prefix}」開頭的歌單。")
 
     logger.info("從 Spotify 合併所有曲目並重新匯入 Apple Music...")
-    csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
-    if not csv_path:
-        logger.error("匯出 Spotify 歌單失敗")
-        return False
-
-    from .apple_music import import_to_apple_music
-
-    track_count = _count_csv_tracks(csv_path)
-    success = import_to_apple_music(str(csv_path), playlist_name=PLAYLIST_NAME)
-
-    try:
-        send_apple_music_notification(
-            success=success,
-            track_count=track_count,
-            playlist_name=PLAYLIST_NAME,
-            error=None if success else "合併匯入失敗",
-        )
-    except Exception as e:
-        logger.warning(f"Apple Music 通知失敗：{e}")
-
-    return bool(success)
+    success, _ = _sync_to_apple_music(PLAYLIST_NAME)
+    return success
 
 
 def check_apple_music_session() -> bool:
@@ -414,45 +407,8 @@ def sync_current_playlist_to_apple_music() -> bool:
     - session 有效 → 靜默同步，LINE 通知結果
     - session 過期 → 跳過同步，LINE 通知需重新登入
     """
-    from .apple_music import AppleMusicAuthRequiredError, import_to_apple_music
-
-    csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
-    if not csv_path:
-        logger.error("匯出 Spotify 歌單失敗")
-        try:
-            send_apple_music_notification(success=False, error="匯出 CSV 失敗")
-        except Exception as e:
-            logger.warning(f"Apple Music 通知失敗：{e}")
-        return False
-
-    try:
-        track_count = _count_csv_tracks(csv_path)
-        logger.info("開始 Apple Music 同步...")
-        success = import_to_apple_music(str(csv_path), playlist_name=PLAYLIST_NAME)
-        try:
-            send_apple_music_notification(
-                success=success,
-                track_count=track_count,
-                playlist_name=PLAYLIST_NAME,
-                error=None if success else "自動匯入流程失敗",
-            )
-        except Exception as e:
-            logger.warning(f"Apple Music 通知失敗：{e}")
-        return bool(success)
-    except AppleMusicAuthRequiredError as e:
-        logger.warning(str(e))
-        try:
-            send_apple_music_notification(success=False, error=str(e))
-        except Exception as ne:
-            logger.warning(f"Apple Music 通知失敗：{ne}")
-        return False
-    except Exception as e:
-        logger.error(f"Apple Music 同步發生錯誤：{e}")
-        try:
-            send_apple_music_notification(success=False, error=str(e))
-        except Exception as ne:
-            logger.warning(f"Apple Music 通知失敗：{ne}")
-        return False
+    success, _ = _sync_to_apple_music(PLAYLIST_NAME)
+    return success
 
 
 def main() -> None:
@@ -488,12 +444,6 @@ def main() -> None:
     )
     parser.add_argument(
         "--reset", action="store_true", help="清除 Spotify 歌單與資料庫，重新蒐集"
-    )
-    parser.add_argument(
-        "--import",
-        metavar="QUARTER",
-        dest="import_quarter",
-        help="匯出備份並自動透過 TuneMyMusic 匯入 Apple Music",
     )
     parser.add_argument(
         "--export-spotify-url",
@@ -587,7 +537,4 @@ def main() -> None:
             print(f"錯誤：{e}")
             raise SystemExit(1)
     else:
-        run(
-            dry_run=args.dry_run,
-            sync_apple_music=args.apple_music or bool(args.import_quarter),
-        )
+        run(dry_run=args.dry_run, sync_apple_music=args.apple_music)

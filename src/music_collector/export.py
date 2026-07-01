@@ -122,89 +122,6 @@ def export_combined_spotify(playlist_name: str | None = None) -> Path | None:
     return export_path
 
 
-def export_from_spotify(playlist_name: str | None = None) -> Path | None:
-    """直接從 Spotify API 讀取歌單曲目並匯出為 CSV 與 Apple Music 手動匯入 TXT。
-
-    Args:
-        playlist_name: 播放清單名稱
-
-    Returns:
-        匯出 CSV 檔案路徑，或 None（若失敗）
-    """
-    name = playlist_name or PLAYLIST_NAME
-
-    try:
-        sp = get_spotify_client()
-        playlist_id = get_or_create_playlist(sp, name=name)
-    except Exception as e:
-        logger.error(f"Spotify 連線失敗：{e}")
-        print(f"錯誤：無法連線 Spotify — {e}")
-        return None
-
-    # 分頁取得所有曲目
-    tracks: list[tuple[str, str, str]] = []
-    results = sp.playlist_items(
-        playlist_id,
-        fields="items(track(name,album(name),artists(name))),next",
-    )
-    while results:
-        for item in results["items"]:
-            track = item.get("track")
-            if not track:
-                continue
-            artist = ", ".join(a["name"] for a in track["artists"])
-            title = track["name"]
-            album = track.get("album", {}).get("name", "") if track.get("album") else ""
-            tracks.append((artist, title, album))
-        if results.get("next"):
-            results = sp.next(results)
-        else:
-            break
-
-    if not tracks:
-        print("Spotify 歌單中無曲目")
-        return None
-
-    # 去重（case-insensitive）
-    seen: set[tuple[str, str]] = set()
-    unique: list[tuple[str, str, str]] = []
-    for artist, title, album in tracks:
-        key = (artist.lower(), title.lower())
-        if key not in seen:
-            seen.add(key)
-            unique.append((artist, title, album))
-
-    # 建立匯出目錄與檔案
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
-    export_path = EXPORT_DIR / f"{safe_name}.csv"
-    export_txt_path = EXPORT_DIR / f"{safe_name}_Apple_Music.txt"
-
-    # 寫入 CSV
-    with export_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Artist", "Title"])
-        for artist, title, album in unique:
-            writer.writerow([artist, title])
-
-    # 寫入 Apple Music 手動匯入 TXT (Tab-separated)
-    with export_txt_path.open("w", encoding="utf-8") as f:
-        f.write("Name\tArtist\tAlbum\n")
-        for artist, title, album in unique:
-            t_title = title.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-            t_artist = artist.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-            t_album = album.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-            f.write(f"{t_title}\t{t_artist}\t{t_album}\n")
-
-    print(
-        f"\n✅ 已從 Spotify 匯出 {len(unique)} 首曲目（原始 {len(tracks)} 首，去重後 {len(unique)} 首）"
-    )
-    print(f"   CSV 檔案路徑：{export_path}")
-    print(f"   Apple Music 手動匯入文字檔路徑：{export_txt_path}")
-
-    return export_path
-
-
 def _find_backup(query: str) -> Path | None:
     """尋找指定季度的備份檔案。
 
@@ -230,13 +147,6 @@ def _load_backup(path: Path) -> list[dict]:
     except (json.JSONDecodeError, OSError) as e:
         logger.error(f"備份讀取失敗：{e}")
         return []
-
-
-def get_current_quarter() -> str:
-    """取得當前季度的標籤（如 '2026Q1'）。"""
-    now = datetime.now()
-    quarter = (now.month - 1) // 3 + 1
-    return f"{now.year}Q{quarter}"
 
 
 def export_csv(

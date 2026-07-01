@@ -87,7 +87,7 @@ def main():
     server.timeout = 120  # 等待授權的逾時秒數
 
     auth_url = auth_manager.get_authorize_url()
-    print(f"\n正在開啟瀏覽器進行 Spotify 授權...")
+    print("\n正在開啟瀏覽器進行 Spotify 授權...")
     print(f"（若瀏覽器未自動開啟，請手動前往：{auth_url}）\n")
     print(f"等待授權中（埠 {port}）...")
     webbrowser.open(auth_url)
