@@ -9,4 +9,8 @@
 #   ./run.sh --reset      清除歌單重新蒐集
 
 cd "$(dirname "$0")"
+
+# Playwright 升版後瀏覽器需重新下載（冪等，已安裝時秒過）；失敗不擋其他爬蟲
+uv run playwright install chromium || true
+
 PYTHONPATH=src exec uv run python -m music_collector "$@"

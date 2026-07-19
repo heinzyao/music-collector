@@ -12,7 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # 安裝依賴（含 Playwright，Resident Advisor 需要）
 uv sync --extra browser
 
-# 安裝 Playwright Chromium 瀏覽器（首次安裝後僅需執行一次）
+# 安裝 Playwright Chromium 瀏覽器（uv sync 後執行；playwright 升版後需重跑，
+# run.sh / run-scheduled.sh 已內建此步驟自動補裝）
 uv run playwright install chromium
 
 # 安裝含測試工具
