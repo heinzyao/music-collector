@@ -87,15 +87,19 @@ def search_track(sp: spotipy.Spotify, artist: str, title: str) -> str | None:
     2. 寬鬆搜尋：直接搜尋「藝人 曲名」
     兩種方式皆需通過藝人 + 曲名雙重驗證才視為配對成功。
     """
+    search_artist = re.split(
+        r"\s+(?:feat(?:uring)?|ft)\.?\s+", artist, maxsplit=1, flags=re.IGNORECASE,
+    )[0]
+
     # 第一步：精確搜尋
-    query = f"track:{title} artist:{artist}"
+    query = f"track:{title} artist:{search_artist}"
     results = sp.search(q=query, type="track", limit=5)
     for item in results["tracks"]["items"]:
         if _verify_result(item, artist, title):
             return item["uri"]
 
     # 第二步：寬鬆搜尋（不帶欄位限定）
-    query = f"{artist} {title}"
+    query = f"{search_artist} {title}"
     results = sp.search(q=query, type="track", limit=5)
     for item in results["tracks"]["items"]:
         if _verify_result(item, artist, title):
