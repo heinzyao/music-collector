@@ -12,6 +12,8 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 from .config import (
+    ALL_TIME_PLAYLIST_DESCRIPTION,
+    ALL_TIME_PLAYLIST_NAME,
     PLAYLIST_DESCRIPTION,
     PLAYLIST_NAME,
     SPOTIFY_CACHE_PATH,
@@ -146,9 +148,12 @@ def _find_playlist(sp: spotipy.Spotify, name: str) -> str | None:
     return None
 
 
-def get_or_create_playlist(sp: spotipy.Spotify, name: str | None = None) -> str:
+def get_or_create_playlist(
+    sp: spotipy.Spotify, name: str | None = None, description: str | None = None
+) -> str:
     """取得現有播放清單，或建立新的播放清單。回傳播放清單 ID。"""
     name = name or PLAYLIST_NAME
+    description = description or PLAYLIST_DESCRIPTION
     user_id = sp.current_user()["id"]
 
     # 逐頁搜尋使用者現有的播放清單
@@ -159,7 +164,7 @@ def get_or_create_playlist(sp: spotipy.Spotify, name: str | None = None) -> str:
             if pl["name"] == name:
                 logger.info(f"找到現有播放清單：{name} ({pl['id']})")
                 # 同步更新描述（確保描述始終為最新）
-                sp.playlist_change_details(pl["id"], description=PLAYLIST_DESCRIPTION)
+                sp.playlist_change_details(pl["id"], description=description)
                 return pl["id"]
         if not playlists["next"]:
             break
@@ -170,7 +175,7 @@ def get_or_create_playlist(sp: spotipy.Spotify, name: str | None = None) -> str:
         user=user_id,
         name=name,
         public=True,
-        description=PLAYLIST_DESCRIPTION,
+        description=description,
     )
     logger.info(f"已建立新播放清單：{name} ({playlist['id']})")
     return playlist["id"]
@@ -196,6 +201,70 @@ def clear_playlist(sp: spotipy.Spotify, playlist_id: str) -> int:
 
     logger.info(f"已清除播放清單中 {len(uris)} 首曲目")
     return len(uris)
+
+
+# ── All Time 累積歌單（Soundiiz → Apple Music 的同步來源）──
+
+
+def _get_all_time_playlist(sp: spotipy.Spotify) -> str:
+    """取得或建立 All Time 累積歌單，回傳 playlist ID。"""
+    return get_or_create_playlist(
+        sp,
+        name=ALL_TIME_PLAYLIST_NAME,
+        description=ALL_TIME_PLAYLIST_DESCRIPTION,
+    )
+
+
+def mirror_to_all_time(sp: spotipy.Spotify, uris: list[str]) -> int:
+    """將曲目鏡射至只進不出的 All Time 累積歌單，回傳實際新增數。
+
+    主歌單每季會被 archive_previous_quarters() 搬空，但 Soundiiz 只能盯單一
+    歌單同步，因此另外維護一份永不歸檔的累積歌單作為 Apple Music 的來源。
+    去重後才寫入，所以重複呼叫是安全的。
+    """
+    if not uris:
+        return 0
+
+    playlist_id = _get_all_time_playlist(sp)
+    existing = {t["uri"] for t in _get_all_playlist_tracks(sp, playlist_id)}
+    new_uris = [u for u in uris if u not in existing]
+
+    for i in range(0, len(new_uris), 100):
+        sp.playlist_add_items(playlist_id, new_uris[i : i + 100])
+
+    logger.info(f"All Time 累積歌單新增 {len(new_uris)} 首（送入 {len(uris)} 首）")
+    return len(new_uris)
+
+
+def backfill_all_time(sp: spotipy.Spotify) -> int:
+    """把主歌單與所有季度歸檔歌單回填進 All Time 累積歌單，回傳新增數。
+
+    一次性初始化用，但因為 mirror_to_all_time() 會去重，也可當作事後修復工具
+    （例如某週鏡射失敗時補回漏掉的曲目）。
+    """
+    uris: list[str] = []
+
+    main_id = get_or_create_playlist(sp)
+    uris.extend(t["uri"] for t in _get_all_playlist_tracks(sp, main_id))
+    logger.info(f"主歌單：{len(uris)} 首")
+
+    offset = 0
+    while True:
+        playlists = sp.current_user_playlists(limit=50, offset=offset)
+        for pl in playlists["items"]:
+            # 排除 All Time 自己，否則會把目標歌單當成來源
+            if (
+                pl["name"].startswith("Critics' Picks —")
+                and pl["name"] not in (PLAYLIST_NAME, ALL_TIME_PLAYLIST_NAME)
+            ):
+                archived = [t["uri"] for t in _get_all_playlist_tracks(sp, pl["id"])]
+                uris.extend(archived)
+                logger.info(f"歸檔歌單 {pl['name']}：{len(archived)} 首")
+        if not playlists.get("next"):
+            break
+        offset += 50
+
+    return mirror_to_all_time(sp, uris)
 
 
 # ── 播放清單合併與季度歸檔 ──

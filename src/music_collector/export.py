@@ -1,7 +1,7 @@
-"""匯出模組：將備份檔案匯出為 CSV 或純文字格式，供 Apple Music 匯入工具使用。
+"""匯出模組：將季度備份匯出為 CSV 或純文字格式。
 
 支援格式：
-- CSV：適用於 TuneMyMusic、Soundiiz 等線上轉換工具
+- CSV：適用於 Soundiiz 等線上轉換工具
 - TXT：純文字清單，方便手動搜尋
 """
 
@@ -12,114 +12,12 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .config import BACKUP_DIR, PLAYLIST_NAME
-from .spotify import get_spotify_client, get_or_create_playlist
+from .config import BACKUP_DIR
 
 logger = logging.getLogger(__name__)
 
 # 匯出檔案目錄
 EXPORT_DIR = BACKUP_DIR.parent / "exports"
-
-
-def export_combined_spotify(playlist_name: str | None = None) -> Path | None:
-    """合併 Spotify 主歌單與所有歸檔歌單，匯出為單一 CSV 與 Apple Music 手動匯入 TXT 檔。
-
-    用於一次性復原 Apple Music 累積歌單：將主歌單（當季）與所有
-    「Critics' Picks — YYYY QN」歸檔歌單的曲目合併去重後匯出。
-
-    Args:
-        playlist_name: 檔名／Apple Music 歌單名稱
-
-    Returns:
-        匯出 CSV 檔案路徑，或 None（若失敗）
-    """
-    name = playlist_name or PLAYLIST_NAME
-
-    try:
-        sp = get_spotify_client()
-    except Exception as e:
-        logger.error(f"Spotify 連線失敗：{e}")
-        print(f"錯誤：無法連線 Spotify — {e}")
-        return None
-
-    def _fetch_tracks(pid: str) -> list[tuple[str, str, str]]:
-        tracks: list[tuple[str, str, str]] = []
-        results = sp.playlist_items(pid, fields="items(track(name,album(name),artists(name))),next")
-        while results:
-            for item in results["items"]:
-                track = item.get("track")
-                if not track:
-                    continue
-                artist = ", ".join(a["name"] for a in track["artists"])
-                album = track.get("album", {}).get("name", "") if track.get("album") else ""
-                tracks.append((artist, track["name"], album))
-            if results.get("next"):
-                results = sp.next(results)
-            else:
-                break
-        return tracks
-
-    all_tracks: list[tuple[str, str, str]] = []
-
-    main_id = get_or_create_playlist(sp, name=name)
-    main_tracks = _fetch_tracks(main_id)
-    all_tracks.extend(main_tracks)
-    logger.info(f"主歌單：{len(main_tracks)} 首")
-
-    offset = 0
-    while True:
-        playlists = sp.current_user_playlists(limit=50, offset=offset)
-        if not playlists:
-            break
-        for pl in playlists["items"]:
-            if pl["name"].startswith("Critics' Picks —") and pl["name"] != name:
-                archive_tracks = _fetch_tracks(pl["id"])
-                all_tracks.extend(archive_tracks)
-                logger.info(f"歸檔歌單 {pl['name']}：{len(archive_tracks)} 首")
-        if not playlists.get("next"):
-            break
-        offset += 50
-
-    if not all_tracks:
-        print("未找到任何曲目")
-        return None
-
-    seen: set[tuple[str, str]] = set()
-    unique: list[tuple[str, str, str]] = []
-    for artist, title, album in all_tracks:
-        key = (artist.lower(), title.lower())
-        if key not in seen:
-            seen.add(key)
-            unique.append((artist, title, album))
-
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
-    export_path = EXPORT_DIR / f"{safe_name}.csv"
-    export_txt_path = EXPORT_DIR / f"{safe_name}_Apple_Music.txt"
-
-    # 寫入 CSV
-    with export_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Artist", "Title"])
-        for artist, title, album in unique:
-            writer.writerow([artist, title])
-
-    # 寫入 Apple Music 手動匯入 TXT (Tab-separated)
-    with export_txt_path.open("w", encoding="utf-8") as f:
-        f.write("Name\tArtist\tAlbum\n")
-        for artist, title, album in unique:
-            t_title = title.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-            t_artist = artist.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-            t_album = album.replace("\t", " ").replace("\n", " ").replace("\r", " ")
-            f.write(f"{t_title}\t{t_artist}\t{t_album}\n")
-
-    print(
-        f"\n✅ 已合併匯出 {len(unique)} 首曲目（原始 {len(all_tracks)} 首，去重後 {len(unique)} 首）"
-    )
-    print(f"   CSV 檔案路徑：{export_path}")
-    print(f"   Apple Music 手動匯入文字檔路徑：{export_txt_path}")
-
-    return export_path
 
 
 def _find_backup(query: str) -> Path | None:
@@ -157,7 +55,7 @@ def export_csv(
     Args:
         query: 季度查詢字串（如 'Q1'、'2026Q1'）
         spotify_only: 若為 True，僅匯出在 Spotify 找到的曲目
-        playlist_name: 播放清單名稱（TuneMyMusic 會使用檔名作為歌單名稱）
+        playlist_name: 播放清單名稱（多數轉換服務會以檔名作為歌單名稱）
 
     Returns:
         匯出檔案路徑，或 None（若失敗）
@@ -183,7 +81,7 @@ def export_csv(
     # 建立匯出目錄與檔案
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 使用播放清單名稱作為檔名（TuneMyMusic 會使用檔名作為歌單名稱）
+    # 使用播放清單名稱作為檔名（多數轉換服務會以檔名作為歌單名稱）
     if playlist_name:
         # 移除檔名中不允許的字元
         safe_name = re.sub(r'[<>:"/\\|?*]', "_", playlist_name)
@@ -202,12 +100,6 @@ def export_csv(
 
     print(f"\n✅ 已匯出 {len(data)} 首曲目至：")
     print(f"   {export_path}")
-    if not playlist_name:
-        print("\n📱 匯入方式：")
-        print("   1. 前往 https://www.tunemymusic.com/")
-        print("   2. 選擇「Select source」→「File」→ 上傳此 CSV")
-        print("   3. 選擇「Select destination」→「Apple Music」")
-        print("   4. 完成匯入")
 
     return export_path
 
@@ -252,8 +144,6 @@ def export_txt(query: str, spotify_only: bool = True) -> Path | None:
 
     print(f"\n✅ 已匯出 {len(data)} 首曲目至：")
     print(f"   {export_path}")
-    print("\n📱 匯入方式：")
-    print("   手動在 Apple Music 中搜尋並加入播放清單")
 
     return export_path
 
@@ -270,7 +160,7 @@ def export_playlist(
         query: 季度查詢字串
         fmt: 格式（'csv' 或 'txt'）
         include_all: 若為 True，包含未在 Spotify 找到的曲目
-        playlist_name: 播放清單名稱（用於 --import 時設定 Apple Music 歌單名稱）
+        playlist_name: 播放清單名稱（作為匯出檔名）
 
     Returns:
         匯出檔案路徑
@@ -284,29 +174,26 @@ def export_playlist(
 
 
 def export_spotify_url() -> None:
-    """輸出 Spotify 播放清單連結，供使用者透過 TuneMyMusic 或 Soundiiz 轉換至其他平台。
-
-    支援轉換至：YouTube Music、Tidal、Apple Music 等。
-    """
+    """輸出主歌單與 All Time 累積歌單的 Spotify 連結，供 Soundiiz 等服務同步至其他平台。"""
+    from .config import ALL_TIME_PLAYLIST_NAME
     from .spotify import get_spotify_client, get_or_create_playlist
 
     try:
         sp = get_spotify_client()
-        playlist_id = get_or_create_playlist(sp)
-        playlist = sp.playlist(playlist_id, fields="external_urls,name,tracks(total)")
-        url = playlist["external_urls"]["spotify"]
-        name = playlist["name"]
-        total = playlist["tracks"]["total"]
 
-        print(f"\n🎵 Spotify 播放清單：{name}")
-        print(f"   曲目數：{total} 首")
-        print(f"   連結：{url}")
+        for name in (None, ALL_TIME_PLAYLIST_NAME):
+            playlist_id = get_or_create_playlist(sp, name=name)
+            playlist = sp.playlist(
+                playlist_id, fields="external_urls,name,tracks(total)"
+            )
+            print(f"\n🎵 {playlist['name']}")
+            print(f"   曲目數：{playlist['tracks']['total']} 首")
+            print(f"   連結：{playlist['external_urls']['spotify']}")
+
         print()
-        print("📱 轉換至其他平台：")
-        print("   1. TuneMyMusic — https://www.tunemymusic.com/")
-        print("      選擇 Spotify → YouTube Music / Tidal / Apple Music")
-        print("   2. Soundiiz — https://soundiiz.com/")
-        print("      選擇 Spotify → 任意目標平台")
+        print("📱 同步至 Apple Music / YouTube Music / Tidal：")
+        print("   Soundiiz — https://soundiiz.com/ → Auto-Sync")
+        print(f"   來源請選「{ALL_TIME_PLAYLIST_NAME}」（累積歌單，不受季度歸檔影響）")
     except Exception as e:
         logger.error(f"取得 Spotify 播放清單失敗：{e}")
         print(f"錯誤：{e}")

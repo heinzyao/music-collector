@@ -35,7 +35,6 @@ def send_notification(
     tracks: list[Track],
     spotify_found: list[str],
     spotify_not_found: list[Track],
-    apple_music_status: str | None = None,
     unhealthy_sources: list[Any] | None = None,
 ) -> None:
     """發送通知摘要至所有已設定的通道。
@@ -44,11 +43,10 @@ def send_notification(
         tracks: 本次新發現的曲目清單。
         spotify_found: 成功配對的 Spotify URI 清單。
         spotify_not_found: 在 Spotify 上未找到的曲目清單。
-        apple_music_status: Apple Music 匯入狀態訊息。
         unhealthy_sources: 不健康或有警告的來源清單。
     """
     message = _build_message(
-        tracks, spotify_found, spotify_not_found, apple_music_status, unhealthy_sources
+        tracks, spotify_found, spotify_not_found, unhealthy_sources
     )
 
     _send_line(message)
@@ -65,21 +63,17 @@ def send_no_new_tracks_notification() -> None:
     _send_slack(message)
 
 
-def send_apple_music_notification(
-    success: bool,
-    track_count: int | None = None,
-    playlist_name: str | None = None,
-    error: str | None = None,
-) -> None:
-    """發送 Apple Music 匯入結果通知至所有已設定的通道。
+def send_error_notification(title: str, reason: str, action: str = "") -> None:
+    """發送執行失敗警示至所有已設定的通道。
 
     Args:
-        success: 匯入是否成功。
-        track_count: 匯入的曲目數量。
-        playlist_name: 目標播放清單名稱。
-        error: 失敗時的錯誤訊息。
+        title: 失敗項目（如「Spotify 連線失敗」）。
+        reason: 錯誤訊息原文。
+        action: 建議的修復動作。
     """
-    message = _build_apple_music_message(success, track_count, playlist_name, error)
+    message = f"🚨 Music Collector — {title}\n\n原因：{reason}"
+    if action:
+        message += f"\n\n{action}"
 
     _send_line(message)
     _send_telegram(message)
@@ -189,7 +183,6 @@ def _build_message(
     tracks: list[Track],
     spotify_found: list[str],
     spotify_not_found: list[Track],
-    apple_music_status: str | None = None,
     unhealthy_sources: list[Any] | None = None,
 ) -> str:
     """組合通知文字。"""
@@ -210,9 +203,6 @@ def _build_message(
         f"未找到：{not_found} 首\n"
     )
 
-    if apple_music_status:
-        msg += f"Apple Music：{apple_music_status}\n"
-
     if unhealthy_sources:
         msg += "\n⚠️ 來源異常：\n"
         for h in unhealthy_sources:
@@ -225,29 +215,6 @@ def _build_message(
                 msg += f"  🟡 {h.source}：連續 {h.consecutive_empty_days} 天無曲目（可能結構改變）\n"
 
     msg += f"\n各來源貢獻：\n{source_lines}"
-    return msg
-
-
-def _build_apple_music_message(
-    success: bool,
-    track_count: int | None = None,
-    playlist_name: str | None = None,
-    error: str | None = None,
-) -> str:
-    """組合 Apple Music 匯入通知文字。"""
-    if success:
-        name = playlist_name or "Critics' Picks"
-        msg = "🍎 Apple Music 手動匯入檔案已產出\n"
-        if playlist_name:
-            msg += f"\n播放清單：{playlist_name}"
-        if track_count is not None:
-            msg += f"\n曲目數量：{track_count} 首"
-        msg += f"\n\n請前往專案 data/exports/ 資料夾選取「{name}_Apple_Music.txt」，手動在 macOS 音樂 App 中選擇「檔案」->「資料庫」->「匯入播放清單...」即可完成匯入。"
-    else:
-        msg = "🍎 Apple Music 檔案產出失敗\n"
-        if error:
-            msg += f"\n原因：{error}"
-        msg += "\n\n請檢查執行日誌。"
     return msg
 
 

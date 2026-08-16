@@ -6,9 +6,9 @@
     python -m music_collector --recent 7   # 顯示最近 7 天蒐集的曲目
     python -m music_collector --backup     # 列出所有備份
     python -m music_collector --backup Q1  # 顯示指定季度備份內容
-    python -m music_collector --export Q1  # 匯出 Q1 為 CSV（供 Apple Music 匯入）
+    python -m music_collector --export Q1  # 匯出 Q1 為 CSV
     python -m music_collector --export Q1 --format txt  # 匯出為純文字
-    python -m music_collector --apple-music  # 完整執行（擷取 + Spotify + Apple Music 匯入）
+    python -m music_collector --backfill-all-time  # 回填 All Time 累積歌單
     python -m music_collector --reset      # 清除歌單與資料庫，重新蒐集
 """
 
@@ -19,12 +19,11 @@ from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
 from .export import (
-    export_combined_spotify,
     export_playlist,
     export_spotify_url,
 )
 from .stats import show_stats
-from .config import DB_PATH, PLAYLIST_NAME
+from .config import DB_PATH
 from .db import init_db, save_track, track_exists, get_recent_tracks
 from .health import (
     get_health_report,
@@ -33,7 +32,7 @@ from .health import (
     record_scrape_result,
 )
 from .notify import (
-    send_apple_music_notification,
+    send_error_notification,
     send_no_new_tracks_notification,
     send_notification,
     send_source_health_notification,
@@ -43,10 +42,12 @@ from .scrapers.base import Track
 from .spotify import (
     add_tracks_to_playlist,
     archive_previous_quarters,
+    backfill_all_time,
     clear_playlist,
     get_or_create_playlist,
     get_spotify_client,
     migrate_old_playlist,
+    mirror_to_all_time,
     search_track,
 )
 
@@ -57,73 +58,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-
-def _count_csv_tracks(csv_path: Path) -> int | None:
-    """計算 CSV 檔案中的曲目數量（不含標題列）。"""
-    try:
-        lines = csv_path.read_text(encoding="utf-8").strip().splitlines()
-        return max(len(lines) - 1, 0)  # 扣除標題列
-    except Exception:
-        return None
-
-
-def _notify_apple_music(
-    success: bool,
-    *,
-    track_count: int | None = None,
-    playlist_name: str | None = None,
-    error: str | None = None,
-) -> None:
-    """發送 Apple Music 通知，吞掉通知本身的例外。"""
-    try:
-        send_apple_music_notification(
-            success=success,
-            track_count=track_count,
-            playlist_name=playlist_name,
-            error=error,
-        )
-    except Exception as e:
-        logger.warning(f"Apple Music 通知失敗：{e}")
-
-
-def _sync_to_apple_music(playlist_name: str, notify: bool = True) -> tuple[bool, str]:
-    """匯出合併歌單並匯入 Apple Music，處理通知與例外。
-
-    回傳 (是否成功, 狀態訊息)。狀態訊息供通知摘要使用。
-    notify=False 時跳過所有 LINE/通知（供 --dry-run 使用）。
-    """
-    from .apple_music import AppleMusicAuthRequiredError, import_to_apple_music
-
-    # ponytail: 局部包裝，notify=False 時直接吞掉，省得每個呼叫點都加 if
-    def maybe_notify(*a, **kw):
-        if notify:
-            _notify_apple_music(*a, **kw)
-
-    try:
-        logger.info("開始 Apple Music 同步流程...")
-        csv_path = export_combined_spotify(playlist_name=playlist_name)
-        if not csv_path:
-            maybe_notify(False, error="匯出 CSV 失敗")
-            return False, "匯出 CSV 失敗"
-
-        track_count = _count_csv_tracks(csv_path)
-        success = import_to_apple_music(str(csv_path), playlist_name=playlist_name)
-        maybe_notify(
-            success,
-            track_count=track_count,
-            playlist_name=playlist_name,
-            error=None if success else "自動匯入流程失敗",
-        )
-        return success, "匯入成功" if success else "匯入失敗"
-    except AppleMusicAuthRequiredError as e:
-        logger.warning(str(e))
-        maybe_notify(False, error=str(e))
-        return False, f"略過同步（{e}）"
-    except Exception as e:
-        logger.error(f"Apple Music 同步發生錯誤：{e}")
-        maybe_notify(False, error=str(e))
-        return False, f"發生錯誤 ({e})"
 
 
 def _fetch_from_scraper(scraper) -> tuple[str, list[Track], str | None]:
@@ -190,12 +124,8 @@ def reset() -> None:
     run(dry_run=False)
 
 
-def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
-    """主流程：擷取 → Spotify 搜尋 → 備份 → Apple Music 同步 → 通知。
-
-    當 sync_apple_music=True 時，Apple Music 匯入無論是否有新曲目都會執行，
-    確保 Spotify 歌單完成後才進行 Apple Music 匯入。
-    """
+def run(dry_run: bool = False) -> None:
+    """主流程：擷取 → Spotify 搜尋 → All Time 鏡射 → 備份 → 季度歸檔 → 通知。"""
     logger.info("開始音樂蒐集...")
 
     new_tracks = collect_tracks()
@@ -203,8 +133,7 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
 
     if not new_tracks:
         logger.info("今日無新曲目。")
-        if not dry_run and not sync_apple_music:
-            # 無 Apple Music 同步時直接發送「無新曲目」通知並結束
+        if not dry_run:
             try:
                 send_no_new_tracks_notification()
             except Exception as e:
@@ -224,9 +153,22 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
     not_found: list[Track] = []
 
     if new_tracks:
-        # 連接 Spotify 並取得或建立播放清單
-        sp = get_spotify_client()
-        playlist_id = get_or_create_playlist(sp)
+        # 連接 Spotify 並取得或建立播放清單。
+        # 授權失效（refresh token 被撤銷）會讓整個排程靜默失敗，所以在此攔截並通知。
+        try:
+            sp = get_spotify_client()
+            playlist_id = get_or_create_playlist(sp)
+        except Exception as e:
+            logger.error(f"Spotify 認證或連線失敗：{e}")
+            try:
+                send_error_notification(
+                    "Spotify 連線失敗",
+                    str(e),
+                    "請刪除 .spotify_cache 後執行 ./run.sh 重新完成瀏覽器授權。",
+                )
+            except Exception as notify_error:
+                logger.warning(f"通知失敗：{notify_error}")
+            return
 
         # 一次性合併舊播放清單（找不到則自動跳過）
         try:
@@ -261,6 +203,13 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
             add_tracks_to_playlist(sp, playlist_id, spotify_uris)
             logger.info(f"已加入 {len(spotify_uris)} 首曲目至播放清單")
 
+            # 同步鏡射至 All Time 累積歌單（Soundiiz 由此同步至 Apple Music）。
+            # 失敗不影響主流程：下次執行或 --backfill-all-time 都會補回。
+            try:
+                mirror_to_all_time(sp, spotify_uris)
+            except Exception as e:
+                logger.warning(f"All Time 累積歌單鏡射失敗：{e}")
+
         if not_found:
             logger.info(f"{len(not_found)} 首曲目在 Spotify 上未找到")
 
@@ -270,13 +219,8 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
         except Exception as e:
             logger.warning(f"備份失敗：{e}")
 
-    # Apple Music 自動匯入（無論是否有新曲目都執行，確保 Apple Music 與 Spotify 同步）
-    apple_music_status = None
-    if sync_apple_music:
-        _, apple_music_status = _sync_to_apple_music(PLAYLIST_NAME)
-
-    # 季度歸檔：在 Apple Music 同步完成後，才將前季曲目從 Spotify 主歌單移至歸檔清單
-    # 這確保 Apple Music 匯出時能取得完整歌單（含前季曲目），維持累積歌單模式
+    # 季度歸檔：將前季曲目從 Spotify 主歌單移至歸檔清單。
+    # All Time 累積歌單不受影響，Apple Music 那份仍保有完整歷史。
     try:
         sp_archive = get_spotify_client()
         pid_archive = get_or_create_playlist(sp_archive)
@@ -302,9 +246,7 @@ def run(dry_run: bool = False, sync_apple_music: bool = False) -> None:
 
     # 通知（LINE / Telegram / Slack）
     try:
-        send_notification(
-            new_tracks, spotify_uris, not_found, apple_music_status, unhealthy_sources
-        )
+        send_notification(new_tracks, spotify_uris, not_found, unhealthy_sources)
     except Exception as e:
         logger.warning(f"通知失敗：{e}")
 
@@ -336,86 +278,20 @@ def show_health() -> None:
     print("\n" + report)
 
 
-def merge_apple_music() -> bool:
-    """清除 Apple Music 中所有 Critics' Picks 歌單，重新從 Spotify 合併匯入成單一歌單。
+def backfill_all_time_playlist() -> bool:
+    """把主歌單與所有季度歸檔歌單回填進 All Time 累積歌單。"""
+    from .config import ALL_TIME_PLAYLIST_NAME
 
-    步驟：
-    1. 列出 Apple Music 中所有以「Critics' Picks」開頭的歌單並刪除
-    2. export_combined_spotify() 合併 Spotify 主歌單 + 所有季度歸檔歌單
-    3. import_to_apple_music() 搜尋並建立一份完整的新歌單
-    """
-    from .apple_music import AppleMusicAuthRequiredError
-    from .apple_music.api import (
-        _delete_playlist_by_id,
-        _delete_playlists_by_prefix_applescript,
-        _load_token_file,
-        _validate_session,
-        list_playlists_by_prefix,
-    )
-
-    dev_token, user_token = _load_token_file()
-    if not dev_token or not user_token:
-        raise AppleMusicAuthRequiredError(
-            "Apple Music token 不存在或已過期。"
-            " 請先執行 ./recover-apple-music-sync.sh 重新取得 token。"
-        )
-    if not _validate_session(dev_token, user_token):
-        raise AppleMusicAuthRequiredError(
-            "Apple Music token 驗證失敗（已過期或被撤銷）。"
-            " 請先執行 ./recover-apple-music-sync.sh 重新取得 token。"
-        )
-
-    prefix = "Critics' Picks"
-    existing = list_playlists_by_prefix(prefix, dev_token, user_token)
-
-    if existing:
-        print(f"\n找到 {len(existing)} 個需要清除的歌單：")
-        for pl in existing:
-            print(f"  - {pl['name']}（{pl['id']}）")
-        print()
-        api_deleted = sum(
-            1 for pl in existing
-            if _delete_playlist_by_id(pl["id"], dev_token, user_token)
-        )
-        if api_deleted < len(existing):
-            logger.info(
-                f"API 刪除 {api_deleted}/{len(existing)} 個，改用 AppleScript 清理剩餘"
-            )
-            deleted = _delete_playlists_by_prefix_applescript(prefix)
-            logger.info(f"AppleScript 已刪除 {deleted} 個歌單")
-        else:
-            logger.info(f"已刪除所有 {api_deleted} 個歌單")
-    else:
-        print(f"Apple Music 中未找到任何「{prefix}」開頭的歌單。")
-
-    logger.info("從 Spotify 合併所有曲目並重新匯入 Apple Music...")
-    success, _ = _sync_to_apple_music(PLAYLIST_NAME)
-    return success
-
-
-def check_apple_music_session() -> bool:
-    """檢查 token 檔案是否存在且通過 API 驗證。"""
-    from .apple_music.api import _load_token_file, _validate_session
-
-    dev_token, user_token = _load_token_file()
-    if not dev_token or not user_token:
-        logger.warning("Apple Music token 檔案不存在或已過期")
+    try:
+        sp = get_spotify_client()
+    except Exception as e:
+        print(f"錯誤：無法連線 Spotify — {e}")
         return False
 
-    logger.info("Token 檔案存在，執行 API 驗證...")
-    return _validate_session(dev_token, user_token)
-
-
-def sync_current_playlist_to_apple_music(notify: bool = True) -> bool:
-    """匯出目前 Spotify 主歌單並同步至 Apple Music。
-
-    排程環境下會自動偵測 session 是否可用：
-    - session 有效 → 靜默同步，LINE 通知結果
-    - session 過期 → 跳過同步，LINE 通知需重新登入
-    notify=False 時跳過通知（供 --dry-run 使用）。
-    """
-    success, _ = _sync_to_apple_music(PLAYLIST_NAME, notify=notify)
-    return success
+    added = backfill_all_time(sp)
+    print(f"\n✅ 「{ALL_TIME_PLAYLIST_NAME}」新增 {added} 首曲目")
+    print("   在 Soundiiz 將此歌單設為 Auto-Sync 來源，即可鏡射至 Apple Music。")
+    return True
 
 
 def main() -> None:
@@ -435,13 +311,13 @@ def main() -> None:
     parser.add_argument(
         "--export",
         metavar="QUARTER",
-        help="匯出備份為 CSV 或 TXT，供 Apple Music 匯入工具使用",
+        help="匯出季度備份為 CSV 或 TXT",
     )
     parser.add_argument(
         "--format",
         choices=["csv", "txt"],
         default="csv",
-        help="匯出格式：csv（預設，適用 TuneMyMusic）或 txt（純文字）",
+        help="匯出格式：csv（預設）或 txt（純文字）",
     )
     parser.add_argument(
         "--all",
@@ -455,7 +331,7 @@ def main() -> None:
     parser.add_argument(
         "--export-spotify-url",
         action="store_true",
-        help="輸出 Spotify 播放清單連結，供轉換至 YouTube Music / Tidal 等平台",
+        help="輸出 Spotify 播放清單連結，供 Soundiiz 等服務同步至其他平台",
     )
     parser.add_argument(
         "--stats",
@@ -464,21 +340,12 @@ def main() -> None:
         metavar="SUBCOMMAND",
         help="資料分析：不帶參數顯示總覽，overlap 顯示重疊分析，sources 顯示來源比較",
     )
-    parser.add_argument(
-        "--apple-music",
-        action="store_true",
-        help="在蒐集完成後，自動將新歌單同步至 Apple Music（需先執行 recover-apple-music-sync.sh 取得 token）",
-    )
-    parser.add_argument(
-        "--check-apple-music-session",
-        action="store_true",
-        help="僅檢查目前 Apple Music browser profile session 是否可用",
-    )
     parser.add_argument("--web", action="store_true", help="啟動 Streamlit Web 介面")
     parser.add_argument(
-        "--recover-apple-music",
+        "--backfill-all-time",
         action="store_true",
-        help="合併主歌單與所有歸檔歌單匯出 CSV，用於一次性復原 Apple Music 累積歌單",
+        dest="backfill_all_time",
+        help="將主歌單與所有季度歸檔歌單回填至「All Time」累積歌單（Soundiiz 的同步來源）",
     )
     parser.add_argument(
         "--health",
@@ -489,12 +356,6 @@ def main() -> None:
         "--clean",
         action="store_true",
         help="清理快取、暫存、舊日誌、匯出檔案，優化資料庫與 Playwright 瀏覽器快取",
-    )
-    parser.add_argument(
-        "--merge-apple-music",
-        action="store_true",
-        dest="merge_apple_music",
-        help="清除 Apple Music 中所有 Critics' Picks 歌單，從 Spotify 重新合併匯入為單一歌單",
     )
     args = parser.parse_args()
 
@@ -519,30 +380,12 @@ def main() -> None:
         show_recent(days=args.recent)
     elif args.reset:
         reset()
-    elif args.recover_apple_music:
-        csv_path = export_combined_spotify(playlist_name=PLAYLIST_NAME)
-        if csv_path:
-            print("\n📱 復原步驟：")
-            print("   1. 前往 https://www.tunemymusic.com/")
-            print(f"   2. 上傳 {csv_path}")
-            print("   3. 選擇 Apple Music 作為目標")
-    elif args.check_apple_music_session:
-        raise SystemExit(0 if check_apple_music_session() else 1)
-    elif args.apple_music:
-        ok = sync_current_playlist_to_apple_music(notify=not args.dry_run)
-        raise SystemExit(0 if ok else 1)
+    elif args.backfill_all_time:
+        raise SystemExit(0 if backfill_all_time_playlist() else 1)
     elif args.health:
         show_health()
     elif args.clean:
         from .clean import clean_all
         clean_all(dry_run=args.dry_run)
-    elif args.merge_apple_music:
-        from .apple_music import AppleMusicAuthRequiredError
-
-        try:
-            raise SystemExit(0 if merge_apple_music() else 1)
-        except AppleMusicAuthRequiredError as e:
-            print(f"錯誤：{e}")
-            raise SystemExit(1)
     else:
-        run(dry_run=args.dry_run, sync_apple_music=args.apple_music)
+        run(dry_run=args.dry_run)

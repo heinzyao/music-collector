@@ -6,25 +6,26 @@
 
 ## English
 
-Automatically collects "Best New Track" recommendations from major global music review websites and syncs them to Spotify and Apple Music.
+Automatically collects "Best New Track" recommendations from major global music review websites and syncs them to a Spotify playlist. Apple Music is mirrored from Spotify by Soundiiz Auto-Sync — no Apple Music code lives in this project.
 
 ### Feature Overview
 
-The following workflow is executed automatically every day:
+The following workflow is executed automatically every week:
 
 ```text
-13 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Auto-export CSV → Apple Music API Direct Import → LINE Notification
+13 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Mirror to All Time Playlist → LINE Notification
+                                                                                    ↓
+                                                                    Soundiiz Auto-Sync → Apple Music
 ```
 
 #### Core Features
 
 - **Spotify Search Validation**: Dual verification combining artist name and track title to ensure that the added song corresponds with the original source.
-- **Apple Music Automatic Sync**: Directly calls the Apple Music REST API (MusicKit) to import playlists without relying on any third-party transfer service.
 - **Quarterly Archiving**: Automatically moves expired tracks out of the main playlist into an archived playlist (`Critics' Picks — YYYY QN`) per quarter.
-- **Browser State Retention**: Reuses the saved Apple ID browser session when available. If Apple Music requires re-authentication in a non-interactive environment, the sync is skipped immediately with a clear warning instead of blocking the schedule.
-- **Multi-channel Notifications**: Sends execution summaries containing the sync results across the two major platforms via LINE, Telegram, and Slack.
+- **All Time Cumulative Playlist**: Every matched track is also mirrored into `Critics' Picks — All Time`, an append-only playlist that is never archived. Soundiiz syncs this one playlist to Apple Music, so the Apple Music copy keeps the full history even as the main playlist rolls over each quarter.
+- **Multi-channel Notifications**: Sends execution summaries via LINE, Telegram, and Slack — including an alert when Spotify authorization expires, instead of failing the schedule silently.
 - **Local Backup**: Retains quarterly backup copies of all track metadata under a `data/backups/YYYY/QN.json` structure.
-- **Multi-platform Export**: Generates Spotify URLs capable of being imported into TuneMyMusic or Soundiiz to be mapped into YouTube Music, Tidal, etc.
+- **Multi-platform Export**: Generates Spotify playlist URLs that Soundiiz can map into Apple Music, YouTube Music, Tidal, etc.
 - **Data Analysis**: Features source-contribution statistics, Spotify match rates, and cross-reference overlap analysis.
 - **Web Interface**: A Streamlit environment to view historical logs, data distribution, and backup archives.
 - **Playwright Support**: Provides seamless fallback to browser-rendering for Javascript-heavy scraping targets.
@@ -111,10 +112,10 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1              # standard CSV format
 ./run.sh --export Q1 --format txt # text format list
 ./run.sh --export Q1 --all        # include items ignored by Spotify
-./run.sh --export-spotify-url     # output Spotify URLs for TuneMyMusic
+./run.sh --export-spotify-url     # output Spotify playlist URLs for Soundiiz
 
-# Full run + Apple Music sync (Scrape → Spotify → Apple Music)
-./run.sh --import Q1
+# Backfill the All Time cumulative playlist (main + every quarterly archive, deduped)
+./run.sh --backfill-all-time
 
 # Analysis Metrics
 ./run.sh --stats              # Overview
@@ -129,25 +130,6 @@ PYTHONPATH=src uv run python auth.py
 
 # Erase the timeline and the database to restart syncing
 ./run.sh --reset
-
-# Manual Apple Music sync: use this when you're present to complete Apple login if needed
-./run.sh --apple-music
-
-# Merge Apple Music playlists: delete all Critics' Picks playlists and re-import as one
-./run.sh --merge-apple-music
-
-# Recommended Apple Music entrypoint: one menu for Login / Recovery / Sync
-./apple-music-tools.command
-
-# Advanced/manual subcommands
-./bootstrap-apple-music-login.sh
-./recover-apple-music-sync.sh
-./sync-apple-music.sh
-
-# Legacy dedicated launchers (optional)
-./bootstrap-apple-music-login.command
-./recover-apple-music-sync.command
-./sync-apple-music.command
 ```
 
 > Note: Using `run.sh` acts simply as a macro to `PYTHONPATH=src uv run python -m music_collector`.
@@ -159,6 +141,7 @@ PYTHONPATH=src uv run python auth.py
 | Playlist | Usage |
 |----------|-------|
 | **Critics' Picks — Fresh Tracks** | Primary target playlist consisting strictly of the new quarter |
+| **Critics' Picks — All Time** | Append-only cumulative playlist, never archived. The Soundiiz → Apple Music sync source |
 | **Critics' Picks — 2026 Q1** | Indexed archive listing all songs from 2026, Quarter 1 |
 | **Critics' Picks — 2025 Q4** | Indexed archive listing all songs from 2025, Quarter 4 |
 | ... | Generates automatically in succession |
@@ -184,20 +167,13 @@ music-collector/
 ├── Dockerfile                      # Docker build directives
 ├── docker-compose.yml              # Docker Compose services
 │
-│   # ─── Shell scripts & Finder launchers ───
+│   # ─── Shell scripts ───
 ├── run.sh                          # CLI manual execution macro
-├── run-scheduled.sh                # Daily schedule wrapper (crawl + Spotify + Apple Music)
-├── apple-music-tools.command       # Unified Apple Music tools menu (recommended)
-├── bootstrap-apple-music-login.sh  # Open Chrome for Apple ID login
-├── bootstrap-apple-music-login.command
-├── recover-apple-music-sync.sh     # Recovery flow: login → validate → sync
-├── recover-apple-music-sync.command
-├── sync-apple-music.sh             # Apple Music sync only
-├── sync-apple-music.command
+├── run-scheduled.sh                # Weekly schedule wrapper (crawl → Spotify → notify)
+├── clean.sh                        # Disk cleanup utility
 │
-│   # ─── macOS launchd templates ───
+│   # ─── macOS launchd template ───
 ├── com.music-collector.plist.example
-├── com.music-collector.apple-music-manual.plist.example
 │
 │   # ─── GitHub Actions ───
 ├── .github/workflows/ci.yml       # CI: ruff lint + pytest
@@ -214,13 +190,7 @@ music-collector/
 │       ├── notify.py               # LINE + Telegram + Slack notifications
 │       ├── stats.py                # Source contribution & overlap analytics
 │       ├── web.py                  # Streamlit web interface
-│       ├── apple_music/            # Apple Music auto-import (modular)
-│       │   ├── __init__.py
-│       │   ├── api.py              # Apple Music REST API direct import (primary)
-│       │   ├── browser.py          # Chrome driver & anti-detection stealth
-│       │   ├── playlist.py         # Playlist management (MusicKit JS + AppleScript)
-│       │   └── transfer.py         # TuneMyMusic automation (legacy fallback)
-│       ├── tunemymusic.py          # Backward-compatible re-export of apple_music
+│       ├── clean.py                # Cache / log / export cleanup
 │       └── scrapers/
 │           ├── __init__.py         # Scraper registry (13 modules)
 │           ├── base.py             # BaseScraper + Track model + Playwright support
@@ -239,15 +209,13 @@ music-collector/
 │           └── quietus.py          # The Quietus (RSS)
 ├── tests/
 │   ├── conftest.py                 # Global pytest fixtures
-│   ├── test_apple_music_api.py     # Apple Music API tests
+│   ├── test_spotify.py             # Spotify search & All Time playlist tests
 │   ├── test_notify.py              # Notification tests
 │   ├── fixtures/html/              # HTML mock fixtures
 │   └── scrapers/                   # Per-scraper unit tests (13 modules)
 └── data/                           # Local runtime data (git-ignored)
     ├── tracks.db                   # SQLite database
     ├── collector.log               # Scheduled run log
-    ├── apple_music_recovery.log    # Recovery flow log
-    ├── browser_profile/            # Chrome user data (Apple ID session)
     ├── backups/                    # Quarterly JSON backups
     └── exports/                    # Export output files
 ```
@@ -268,7 +236,7 @@ docker compose run collector --dry-run
 docker compose run collector --stats
 ```
 
-### Daily Automation
+### Weekly Automation
 
 #### macOS launchd (Preferred Methodology)
 
@@ -277,20 +245,19 @@ cp com.music-collector.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 ```
 
-This binds an automatic timer executing around 09:00 locally every day. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
+This binds an automatic timer executing around 09:00 locally every Sunday. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
 
-The scheduled LaunchAgent runs the **full pipeline including Apple Music sync**. The flow is: crawl → Spotify → Apple Music → LINE notification. If the saved Apple Music session is still valid, sync happens silently. If Apple requires re-authentication, the sync is skipped immediately and a **LINE notification** is sent with recovery instructions — no blocking, no timeout.
+The scheduled LaunchAgent runs a single step: crawl → Spotify → All Time mirror → backup → quarterly archive → notification. If Spotify authorization has expired, the run stops early and sends an alert telling you to re-authorize (`rm .spotify_cache && ./run.sh`).
 
-When that happens, double-click `./apple-music-tools.command` to complete Apple login; the next scheduled run will automatically sync.
+#### Apple Music via Soundiiz (one-time setup)
 
-Additional manual recovery tools:
-- `./apple-music-tools.command`: unified Apple Music tools menu for Login / Recovery / Sync (**recommended**)
-- `./recover-apple-music-sync.command`: guided recovery launcher with pre-sync session validation
-- `./bootstrap-apple-music-login.command`: double-clickable login bootstrap launcher
-- `./sync-apple-music.command`: double-clickable Finder launcher
-- `com.music-collector.apple-music-manual.plist`: optional per-user LaunchAgent you can start manually with `launchctl start com.music-collector.apple-music-manual`
+Apple Music is not driven by this project. Set it up once and it keeps itself current:
 
-Recovery summaries are also written to `data/apple_music_recovery.log` for quick status review.
+1. `./run.sh --backfill-all-time` — create and seed `Critics' Picks — All Time`
+2. `./run.sh --export-spotify-url` — grab the playlist link
+3. In [Soundiiz](https://soundiiz.com/) (Premium): **Auto-Sync** → source `Critics' Picks — All Time` on Spotify → destination Apple Music, weekly
+
+The All Time playlist is used as the source because the main playlist is emptied by quarterly archiving, and Soundiiz syncs one playlist at a time.
 
 #### crontab Option
 
@@ -348,25 +315,26 @@ MIT License
 
 ## 繁體中文
 
-自動從全球主要音樂評論網站蒐集「最佳新曲」推薦，並同步至 Spotify 與 Apple Music。
+自動從全球主要音樂評論網站蒐集「最佳新曲」推薦，並同步至 Spotify 播放清單。Apple Music 由 Soundiiz Auto-Sync 從 Spotify 端鏡射，專案本身不含任何 Apple Music 程式碼。
 
 ### 功能概覽
 
-每日自動執行以下流程：
+每週自動執行以下流程：
 
 ```text
-13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 自動匯出 CSV → Apple Music API 直接匯入 → LINE 通知
+13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
+                                                        ↓
+                                        Soundiiz Auto-Sync → Apple Music
 ```
 
 #### 核心功能
 
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
-- **Apple Music 自動同步**：直接呼叫 Apple Music REST API（MusicKit），不依賴任何第三方轉換服務，將歌單直接匯入 Apple Music
 - **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
-- **瀏覽器狀態保存**：會重用已儲存的 Apple ID 瀏覽器 session；若 Apple Music 在非互動環境中要求重新登入，程式會立即略過同步並記錄明確警告，不再卡住整個排程
-- **多通道通知**：LINE + Telegram + Slack 推送執行摘要，包含兩大平台同步結果
+- **All Time 累積歌單**：所有配對成功的曲目同時鏡射至只進不出、永不歸檔的 `Critics' Picks — All Time`。Soundiiz 以此為同步來源，因此即使主歌單每季輪替，Apple Music 那份仍保有完整歷史
+- **多通道通知**：LINE + Telegram + Slack 推送執行摘要；Spotify 授權失效時也會發送警示，不再靜默失敗
 - **本地備份**：以 `data/backups/YYYY/QN.json` 季度結構備份所有曲目紀錄
-- **多平台匯出**：Spotify URL 匯出，供 TuneMyMusic/Soundiiz 轉換至 YouTube Music、Tidal 等
+- **多平台匯出**：Spotify 歌單連結匯出，供 Soundiiz 同步至 Apple Music、YouTube Music、Tidal 等
 - **資料分析**：來源貢獻、Spotify 配對率、跨來源重疊分析
 - **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
 - **Playwright 支援**：JS 重度渲染網站自動 fallback 至瀏覽器渲染
@@ -453,10 +421,10 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1              # CSV 格式
 ./run.sh --export Q1 --format txt # 純文字格式
 ./run.sh --export Q1 --all        # 包含 Spotify 未找到的曲目
-./run.sh --export-spotify-url     # 輸出 Spotify 連結供轉換
+./run.sh --export-spotify-url     # 輸出 Spotify 歌單連結供 Soundiiz 使用
 
-# 完整執行 + Apple Music 同步（擷取 → Spotify → Apple Music）
-./run.sh --import Q1
+# 回填 All Time 累積歌單（主歌單 + 所有季度歸檔，去重）
+./run.sh --backfill-all-time
 
 # 資料分析
 ./run.sh --stats              # 總覽
@@ -471,25 +439,6 @@ PYTHONPATH=src uv run python auth.py
 
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset
-
-# 手動 Apple Music 同步：當你人在電腦前、可視需要完成 Apple 登入時使用
-./run.sh --apple-music
-
-# 合併 Apple Music 歌單：清除所有 Critics' Picks 歌單，從 Spotify 重新匯入為單一歌單
-./run.sh --merge-apple-music
-
-# 建議的 Apple Music 入口：用單一選單處理 Login / Recovery / Sync
-./apple-music-tools.command
-
-# 進階／手動子命令
-./bootstrap-apple-music-login.sh
-./recover-apple-music-sync.sh
-./sync-apple-music.sh
-
-# 舊的專用啟動器（可選）
-./bootstrap-apple-music-login.command
-./recover-apple-music-sync.command
-./sync-apple-music.command
 ```
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`，可直接傳遞所有參數。
@@ -501,6 +450,7 @@ PYTHONPATH=src uv run python auth.py
 | 播放清單 | 用途 |
 |----------|------|
 | **Critics' Picks — Fresh Tracks** | 主清單，僅包含當季新曲目 |
+| **Critics' Picks — All Time** | 累積清單，只進不出、永不歸檔，Soundiiz → Apple Music 的同步來源 |
 | **Critics' Picks — 2026 Q1** | 歸檔清單，2026 年第 1 季的曲目 |
 | **Critics' Picks — 2025 Q4** | 歸檔清單，2025 年第 4 季的曲目 |
 | ... | 依此類推，自動建立 |
@@ -526,20 +476,13 @@ music-collector/
 ├── Dockerfile                      # Docker 容器化
 ├── docker-compose.yml              # Docker Compose 設定
 │
-│   # ─── Shell 腳本與 Finder 啟動器 ───
+│   # ─── Shell 腳本 ───
 ├── run.sh                          # 手動執行腳本
-├── run-scheduled.sh                # 每日排程腳本（擷取 + Spotify + Apple Music）
-├── apple-music-tools.command       # 統一 Apple Music 工具選單（建議）
-├── bootstrap-apple-music-login.sh  # 開啟 Chrome 完成 Apple ID 登入
-├── bootstrap-apple-music-login.command
-├── recover-apple-music-sync.sh     # 恢復流程：登入 → 驗證 → 同步
-├── recover-apple-music-sync.command
-├── sync-apple-music.sh             # 僅 Apple Music 同步
-├── sync-apple-music.command
+├── run-scheduled.sh                # 每週排程腳本（擷取 → Spotify → 通知）
+├── clean.sh                        # 磁碟空間清理工具
 │
 │   # ─── macOS launchd 範本 ───
 ├── com.music-collector.plist.example
-├── com.music-collector.apple-music-manual.plist.example
 │
 │   # ─── GitHub Actions ───
 ├── .github/workflows/ci.yml       # CI：ruff lint + pytest
@@ -556,13 +499,7 @@ music-collector/
 │       ├── notify.py               # LINE + Telegram + Slack 通知
 │       ├── stats.py                # 資料分析模組
 │       ├── web.py                  # Streamlit Web 介面
-│       ├── apple_music/            # Apple Music 自動匯入（模組化）
-│       │   ├── __init__.py
-│       │   ├── api.py              # Apple Music REST API 直接匯入（主要）
-│       │   ├── browser.py          # Chrome driver 與反偵測
-│       │   ├── playlist.py         # 播放清單管理（MusicKit JS + AppleScript）
-│       │   └── transfer.py         # TuneMyMusic 自動化轉移（備援）
-│       ├── tunemymusic.py          # 向後相容（重新匯出 apple_music）
+│       ├── clean.py                # 快取／日誌／匯出清理
 │       └── scrapers/
 │           ├── __init__.py         # 擷取器註冊表（13 個）
 │           ├── base.py             # 基礎擷取器（含 Playwright）
@@ -581,15 +518,13 @@ music-collector/
 │           └── quietus.py          # The Quietus (RSS)
 ├── tests/
 │   ├── conftest.py                 # 全域 fixtures
-│   ├── test_apple_music_api.py     # Apple Music API 測試
+│   ├── test_spotify.py             # Spotify 搜尋與 All Time 歌單測試
 │   ├── test_notify.py              # 通知模組測試
 │   ├── fixtures/html/              # HTML fixture 檔案
 │   └── scrapers/                   # 擷取器測試（13 個）
 └── data/                           # 本地執行資料（git-ignored）
     ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
-    ├── apple_music_recovery.log    # Recovery 流程日誌
-    ├── browser_profile/            # Chrome 使用者資料（Apple ID 登入狀態）
     ├── backups/                    # 季度 JSON 備份
     └── exports/                    # 匯出檔案
 ```
@@ -610,7 +545,7 @@ docker compose run collector --dry-run
 docker compose run collector --stats
 ```
 
-### 每日自動排程
+### 每週自動排程
 
 #### macOS launchd（建議）
 
@@ -619,20 +554,19 @@ cp com.music-collector.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 ```
 
-預設每日 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
+預設每週日 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
 
-LaunchAgent 執行**完整流程，包含 Apple Music 同步**：擷取 → Spotify → Apple Music → LINE 通知。若既有 Apple Music session 仍有效，同步會靜默完成；若 Apple 要求重新登入，程式會立即略過同步並透過 **LINE 通知**提醒你手動登入 — 不會阻塞、不會逾時。
+LaunchAgent 執行單一步驟：擷取 → Spotify → All Time 鏡射 → 備份 → 季度歸檔 → 通知。若 Spotify 授權已失效，執行會提早結束並發送警示，提醒你重新授權（`rm .spotify_cache && ./run.sh`）。
 
-收到通知後，雙擊 `./apple-music-tools.command` 完成 Apple 登入即可，下次排程會自動同步。
+#### Apple Music（Soundiiz 一次性設定）
 
-另外也提供下列手動入口：
-- `./apple-music-tools.command`：統一入口，可在同一個選單中選擇 Login / Recovery / Sync（**建議**）
-- `./recover-apple-music-sync.command`：雙擊後會先開正常 Chrome 讓你登入，先驗證 session 可用，再接續同步
-- `./bootstrap-apple-music-login.command`：可從 Finder 直接雙擊，先開正常 Chrome 登入 Apple
-- `./sync-apple-music.command`：可從 Finder 直接雙擊執行
-- `com.music-collector.apple-music-manual.plist`：可安裝成使用者 LaunchAgent，並用 `launchctl start com.music-collector.apple-music-manual` 手動觸發
+Apple Music 不由本專案驅動，設定一次之後即自動維持同步：
 
-每次 Recovery 的摘要結果也會寫入 `data/apple_music_recovery.log`，方便快速回看是登入未完成、session 驗證失敗，還是同步失敗。
+1. `./run.sh --backfill-all-time` — 建立並回填 `Critics' Picks — All Time`
+2. `./run.sh --export-spotify-url` — 取得歌單連結
+3. 於 [Soundiiz](https://soundiiz.com/)（Premium）設定 **Auto-Sync**：來源選 Spotify 的 `Critics' Picks — All Time`，目標選 Apple Music，頻率每週
+
+之所以用 All Time 而非主歌單，是因為主歌單每季會被歸檔搬空，而 Soundiiz 一次只能同步單一歌單。
 
 #### crontab 替代方案
 

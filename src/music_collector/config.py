@@ -15,6 +15,14 @@ SPOTIFY_REDIRECT_URI = os.environ.get(
     "SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback"
 )
 PLAYLIST_NAME = os.environ.get("PLAYLIST_NAME", "Critics' Picks — Fresh Tracks")
+# 只進不出的累積歌單，供 Soundiiz Auto-Sync 鏡射至 Apple Music
+ALL_TIME_PLAYLIST_NAME = os.environ.get(
+    "ALL_TIME_PLAYLIST_NAME", "Critics' Picks — All Time"
+)
+ALL_TIME_PLAYLIST_DESCRIPTION = (
+    "Critics' Picks 全曲目累積歌單｜彙整 13 家樂評媒體歷來推薦，只增不減。"
+    "由 Music Collector 自動更新。"
+)
 PLAYLIST_DESCRIPTION = (
     "每日自動策展｜彙整 Pitchfork、Stereogum、Rolling Stone、NME、SPIN、"
     "Consequence、The Line of Best Fit、Slant、Complex、Resident Advisor、"

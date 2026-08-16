@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概述
 
-自動從 13 個音樂評論網站蒐集推薦曲目，同步至 Spotify 與 Apple Music 播放清單。
+自動從 13 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Apple Music 由 Soundiiz Auto-Sync 從 Spotify 端鏡射，專案本身不含 Apple Music 程式碼。
 
 ## 開發指令
 
@@ -28,27 +28,20 @@ uv sync --extra test
 # 查看近期蒐集紀錄
 ./run.sh --recent 7
 
-# 合併匯出 Apple Music 手動匯入檔（主歌單 + 所有歸檔歌單去重，產出單一 TXT）
-# 註：自動刪除舊歌單的邏輯已停用，此指令現與 --apple-music 產出相同的手動匯入檔
-./run.sh --merge-apple-music
+# 回填「Critics' Picks — All Time」累積歌單（主歌單 + 所有季度歸檔，去重）
+./run.sh --backfill-all-time
+
+# 輸出主歌單與 All Time 歌單的 Spotify 連結（設定 Soundiiz 時使用）
+./run.sh --export-spotify-url
 
 # 執行測試（全部）
 PYTHONPATH=src uv run pytest tests/ -q
 
 # 執行單一測試檔案
-PYTHONPATH=src uv run pytest tests/test_apple_music_api.py -v
+PYTHONPATH=src uv run pytest tests/test_spotify.py -v
 
 # 執行單一測試
-PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_session_retries -v
-
-# Apple Music 同步（手動，互動環境）
-./sync-apple-music.sh
-
-# Apple Music 同步（僅驗證 TXT 匯出，不發 LINE 通知）
-./sync-apple-music.sh --dry-run
-
-# Apple Music Session 恢復（首次登入或 session 過期）
-./recover-apple-music-sync.sh
+PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skips_existing_uris -v
 ```
 
 > `run.sh` 等同 `PYTHONPATH=src uv run python -m music_collector`。
@@ -58,17 +51,15 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
 - `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（13 個擷取器）
 - `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`
-- `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔）
+- `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔、All Time 累積歌單）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`
-- `src/music_collector/export.py` — 匯出為 CSV/TXT；`export_combined_spotify()` 合併主歌單 + 歸檔歌單並去重匯出，供 Apple Music 使用
-- `src/music_collector/apple_music/` — Apple Music 匯入（手動 TXT 匯出）
-  - `api.py` — **唯一模組**：`import_to_apple_music()` 由 CSV 產出 Tab 分隔的手動匯入 TXT 並印出匯入指引。其餘 `_load_token_file()`、`_validate_session()`、`list_playlists_by_prefix()`、`AppleMusicAuthRequiredError` 等為保留相容性的 no-op stub
+- `src/music_collector/export.py` — 季度備份匯出為 CSV/TXT；`export_spotify_url()` 輸出歌單連結
 - `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
 - `src/music_collector/main.py` — 主流程與 CLI
-- `tests/` — 88 項測試（pytest + respx mock）
+- `tests/` — 87 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
 
@@ -102,34 +93,43 @@ PYTHONPATH=src uv run pytest tests/test_apple_music_api.py::test_validate_sessio
 4. 在 `tests/scrapers/` 新增對應測試
 5. 用 `--dry-run` 測試
 
-## Apple Music 匯入（手動 TXT 匯出）
+## Apple Music（由 Soundiiz 外部同步）
 
-> **重要**：先前的 Apple Music REST API 自動同步（Safari cookie token、`auth_server.py`、瀏覽器自動化）已移除。現行機制改為產出可手動匯入的文字檔，不再需要 token 或 Safari 設定。`api.py` 中殘留的 `_load_token_file()`、`_validate_session()`、`list_playlists_by_*()`、`_delete_*()`、`AppleMusicAuthRequiredError` 皆為保留相容性的 no-op stub（恆回傳成功／空值，不會拋出）。
+> **重要**：專案內已無任何 Apple Music 程式碼。歷來嘗試過的三種做法皆已移除 ——
+> TuneMyMusic Selenium 自動化、Apple Music REST API（Safari cookie token + `auth_server.py`）、
+> macOS 音樂 App 手動 TXT 匯入。最後一種的根本缺陷是「匯入播放清單」只比對既有資料庫、
+> 不查 Apple Music 目錄，冷門曲目結構性無法匹配。
 
-### 流程架構（`api.py`）
+### 現行架構
 
 ```
-export_combined_spotify() 合併主歌單 + 所有歸檔歌單並去重
-→ 產出 data/exports/<歌單名>.csv 與 <歌單名>_Apple_Music.txt（Tab 分隔）
-→ import_to_apple_music() 確保 TXT 已生成，並在終端印出手動匯入指引
+主歌單 Critics' Picks — Fresh Tracks（每季歸檔，只留當季）
+   └─ mirror_to_all_time() 同步鏡射
+Critics' Picks — All Time（只進不出，永不歸檔）
+   └─ Soundiiz Auto-Sync（每週）
+Apple Music 同名歌單
 ```
 
-`api.py` 不含任何 API 呼叫、Selenium、token 或瀏覽器自動化。
+Soundiiz 只能盯單一歌單同步，而主歌單每季會被 `archive_previous_quarters()` 搬空，
+因此另建 All Time 累積歌單作為同步來源，確保 Apple Music 那份保有完整歷史。
 
-### 手動匯入步驟
+### 相關程式碼（皆在 `spotify.py`）
 
-1. 執行 `./sync-apple-music.sh`（或排程的 `--apple-music`）產出 `data/exports/<歌單名>_Apple_Music.txt`
-2. macOS「音樂 (Music)」App →「檔案」→「資料庫」→「匯入播放清單...」
-3. 選取該 TXT，Music App 自動比對曲庫並建立同名播放清單
+- `mirror_to_all_time(sp, uris)` — 去重後寫入 All Time 歌單，`run()` 每次加入新曲目後呼叫，包 try/except（失敗不影響主流程）
+- `backfill_all_time(sp)` — 列舉主歌單 + 所有 `Critics' Picks —` 歸檔歌單（排除 All Time 自己）回填。因為底層去重，同時是一次性初始化與事後修復工具
+- `config.ALL_TIME_PLAYLIST_NAME` — 可用環境變數 `ALL_TIME_PLAYLIST_NAME` 覆寫
+
+### Soundiiz 設定（一次性手動）
+
+1. `./run.sh --backfill-all-time` 建立並回填 All Time 歌單
+2. `./run.sh --export-spotify-url` 取得歌單連結
+3. Soundiiz Premium → Auto-Sync：source = Spotify `Critics' Picks — All Time`，
+   destination = Apple Music 同名歌單，頻率每週
 
 ### 已知限制
 
-- Music App 依曲名／藝人字串比對，個別冷門曲目可能匹配失敗
-- `data/`（含匯出檔）不推送至 Git
-
-## Apple Music Session 恢復流程
-
-已無 session／token 概念。`./recover-apple-music-sync.sh` 現僅提示改用手動匯出模式，並可直接轉呼 `./sync-apple-music.sh` 產出匯入檔。
+- Soundiiz 的曲目比對仍可能漏掉極冷門曲目，但它查的是 Apple Music 目錄，涵蓋率遠高於音樂 App 的本地比對
+- Auto-Sync 為單向（Spotify → Apple Music），在 Apple Music 端手動增刪不會回傳
 
 ## 自動排程（launchd）
 
@@ -150,14 +150,11 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 ### 執行流程（`run-scheduled.sh`）
 
 ```bash
-# Step 1：擷取 → Spotify → 備份 → 通知
+# 單一步驟：擷取 → Spotify → All Time 鏡射 → 備份 → 季度歸檔 → 通知
 PYTHONPATH=src uv run python -m music_collector
-
-# Step 2：Apple Music 同步（session 有效時靜默執行，過期時發通知跳過）
-PYTHONPATH=src uv run python -m music_collector --apple-music || true
 ```
 
-排程使用兩段式：Spotify 先完成後才進行 Apple Music，確保 Apple Music 匯出包含最新曲目。Apple Music 失敗不影響整體排程（`|| true`）。
+Apple Music 不在排程範圍內 —— 由 Soundiiz 在雲端依自身排程從 Spotify 拉取。
 
 ### 排程指令
 
@@ -182,5 +179,7 @@ launchctl start com.music-collector
 - 每個擷取器必須獨立處理例外，不可影響其他來源
 - Spotify 搜尋先用精確查詢 `track: artist:`，失敗後再用寬鬆查詢，兩者皆需通過藝人 + 曲名雙重驗證
 - 曲目去重以大小寫不敏感的 `(artist, title)` 比對
-- 備份/通知各自 try/except，失敗不影響主流程
+- 備份/通知/All Time 鏡射各自 try/except，失敗不影響主流程
 - `--dry-run` 模式不觸發 Spotify 操作、備份與通知
+- Spotify 認證失敗會被攔截並發送 `send_error_notification()`，不再靜默炸掉整個排程；
+  修復方式為 `rm .spotify_cache` 後執行 `./run.sh` 重新完成瀏覽器授權

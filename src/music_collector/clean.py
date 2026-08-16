@@ -2,7 +2,7 @@
 
 支援清理：
 1. Python/工具快取：__pycache__、.pytest_cache、.ruff_cache、.sisyphus
-2. 系統日誌與匯出：prod-run-*.log、舊的 apple_music_recovery.log、data/exports/*.csv、data/exports/*.txt
+2. 系統日誌與匯出：prod-run-*.log、data/exports/*.csv、data/exports/*.txt
 3. 資料庫優化：對 tracks.db 執行 VACUUM 壓縮
 4. 瀏覽器快取：清理 Playwright 在系統中產生的舊版本 (obsolete) 瀏覽器複本
 """
