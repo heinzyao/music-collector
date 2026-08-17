@@ -1,7 +1,12 @@
 from unittest.mock import Mock
 
 from music_collector.config import ALL_TIME_PLAYLIST_NAME, PLAYLIST_NAME
-from music_collector.spotify import backfill_all_time, mirror_to_all_time, search_track
+from music_collector.spotify import (
+    add_tracks_to_playlist,
+    backfill_all_time,
+    mirror_to_all_time,
+    search_track,
+)
 
 
 def _mock_sp(playlists: list[dict], items_by_id: dict[str, list[str]]) -> Mock:
@@ -45,6 +50,24 @@ def test_mirror_to_all_time_skips_existing_uris():
 
     assert added == 1
     sp.playlist_add_items.assert_called_once_with("all", ["spotify:track:b"])
+
+
+def test_add_tracks_to_playlist_skips_duplicates():
+    """同一首歌被兩個來源以不同 (artist, title) 收錄時，歌單裡只能有一份。
+
+    DB 去重的鍵是 (artist, title)，不同來源對同一首歌的字串寫法可能不同，
+    因此兩筆不同的 DB 紀錄可能指向同一個 Spotify URI。
+    """
+    sp = _mock_sp(
+        playlists=[{"id": "main", "name": PLAYLIST_NAME}],
+        items_by_id={"main": ["spotify:track:a"]},
+    )
+
+    add_tracks_to_playlist(
+        sp, "main", ["spotify:track:a", "spotify:track:b", "spotify:track:b"]
+    )
+
+    sp.playlist_add_items.assert_called_once_with("main", ["spotify:track:b"])
 
 
 def test_mirror_to_all_time_dedupes_within_incoming_batch():

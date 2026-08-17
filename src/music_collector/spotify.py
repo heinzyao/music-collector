@@ -182,9 +182,22 @@ def get_or_create_playlist(
 
 
 def add_tracks_to_playlist(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
-    """批次加入曲目至播放清單（Spotify API 每次上限 100 首）。"""
-    for i in range(0, len(uris), 100):
-        batch = uris[i : i + 100]
+    """批次加入曲目至播放清單（Spotify API 每次上限 100 首）。
+
+    加入前先去重：DB 的去重鍵是 (artist, title)，不同來源對同一首歌的字串寫法
+    可能不同，兩筆不同的 DB 紀錄仍可能指向同一個 Spotify URI。
+    """
+    if not uris:
+        return
+
+    existing = {t["uri"] for t in _get_all_playlist_tracks(sp, playlist_id)}
+    new_uris = list(dict.fromkeys(u for u in uris if u not in existing))
+    if not new_uris:
+        logger.info("播放清單已包含所有曲目，無需加入")
+        return
+
+    for i in range(0, len(new_uris), 100):
+        batch = new_uris[i : i + 100]
         sp.playlist_add_items(playlist_id, batch)
         logger.info(f"已加入 {len(batch)} 首曲目至播放清單")
 
