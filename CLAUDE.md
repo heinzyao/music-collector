@@ -72,7 +72,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 | Consequence | HTML | 引號提取曲名 + `_extract_artist_from_prefix()` 動詞邊界偵測 |
 | Line of Best Fit | HTML | 所有格 `'s` 優先策略 + 擴展動詞清單 |
 | Rolling Stone | HTML | 二階段：索引頁多頁掃描（≤3 頁）+ URL slug 匹配 → 文章頁提取曲目 |
-| Slant | HTML | 引號提取 + Review 標題過濾 + JS/Cloudflare 偵測 |
+| Slant | HTML | 三種標題格式（藝人在引號前／後／帶所有格）+ 動詞邊界 + JS/Cloudflare 偵測 |
 | Complex | HTML | `/music` + `/tag/best-new-music` + JS 偵測 + Playwright fallback |
 | Resident Advisor | HTML | Next.js 偵測 + Playwright fallback |
 | Gorilla vs. Bear | RSS | feedparser + mp3/video/on-blast 分類過濾 |
@@ -84,6 +84,8 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 - Consequence：不可將直引號 `'` 放入引號匹配字元集，否則所有格會被誤判為開引號
 - NME / SPIN：使用 `\u2019(?![a-zA-Z])` negative lookahead 避免將縮寫撇號（如 Where's）誤判為結尾引號
 - SPIN：引號內曲名需 `rstrip(".,;:!?")` 移除尾端標點
+- Slant：曲名需 `rstrip(",;:")` —— 美式排版把逗號放在引號**內**（`‘Hazel Eyes,’`）
+- Slant：跳過詞（film/tv/best of…）只能比對引號**外**的文字，否則 `‘Music, Fashion, Film’` 這類曲名會被誤殺
 
 ## 新增擷取器
 
