@@ -203,7 +203,7 @@ def run(dry_run: bool = False) -> None:
             add_tracks_to_playlist(sp, playlist_id, spotify_uris)
             logger.info(f"已加入 {len(spotify_uris)} 首曲目至播放清單")
 
-            # 同步鏡射至 All Time 累積歌單（Soundiiz 由此同步至 Apple Music）。
+            # 同步鏡射至 All Time 累積歌單。
             # 失敗不影響主流程：下次執行或 --backfill-all-time 都會補回。
             try:
                 mirror_to_all_time(sp, spotify_uris)
@@ -220,7 +220,7 @@ def run(dry_run: bool = False) -> None:
             logger.warning(f"備份失敗：{e}")
 
     # 季度歸檔：將前季曲目從 Spotify 主歌單移至歸檔清單。
-    # All Time 累積歌單不受影響，Apple Music 那份仍保有完整歷史。
+    # All Time 累積歌單不受影響，仍保有完整歷史。
     try:
         sp_archive = get_spotify_client()
         pid_archive = get_or_create_playlist(sp_archive)
@@ -290,7 +290,6 @@ def backfill_all_time_playlist() -> bool:
 
     added = backfill_all_time(sp)
     print(f"\n✅ 「{ALL_TIME_PLAYLIST_NAME}」新增 {added} 首曲目")
-    print("   在 Soundiiz 將此歌單設為 Auto-Sync 來源，即可鏡射至 Apple Music。")
     return True
 
 
@@ -331,7 +330,7 @@ def main() -> None:
     parser.add_argument(
         "--export-spotify-url",
         action="store_true",
-        help="輸出 Spotify 播放清單連結，供 Soundiiz 等服務同步至其他平台",
+        help="輸出主歌單與 All Time 累積歌單的 Spotify 連結與曲目數",
     )
     parser.add_argument(
         "--stats",
@@ -345,7 +344,7 @@ def main() -> None:
         "--backfill-all-time",
         action="store_true",
         dest="backfill_all_time",
-        help="將主歌單與所有季度歸檔歌單回填至「All Time」累積歌單（Soundiiz 的同步來源）",
+        help="將主歌單與所有季度歸檔歌單回填至「All Time」累積歌單",
     )
     parser.add_argument(
         "--health",

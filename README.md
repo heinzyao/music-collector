@@ -6,7 +6,7 @@
 
 ## English
 
-Automatically collects "Best New Track" recommendations from major global music review websites and syncs them to a Spotify playlist. Apple Music is mirrored from Spotify by Soundiiz Auto-Sync — no Apple Music code lives in this project.
+Automatically collects "Best New Track" recommendations from major global music review websites and syncs them to a Spotify playlist. Spotify is the only target platform.
 
 ### Feature Overview
 
@@ -14,18 +14,16 @@ The following workflow is executed automatically every week:
 
 ```text
 13 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Mirror to All Time Playlist → LINE Notification
-                                                                                    ↓
-                                                                    Soundiiz Auto-Sync → Apple Music
 ```
 
 #### Core Features
 
 - **Spotify Search Validation**: Dual verification combining artist name and track title to ensure that the added song corresponds with the original source.
 - **Quarterly Archiving**: Automatically moves expired tracks out of the main playlist into an archived playlist (`Critics' Picks — YYYY QN`) per quarter.
-- **All Time Cumulative Playlist**: Every matched track is also mirrored into `Critics' Picks — All Time`, an append-only playlist that is never archived. Soundiiz syncs this one playlist to Apple Music, so the Apple Music copy keeps the full history even as the main playlist rolls over each quarter.
+- **All Time Cumulative Playlist**: Every matched track is also mirrored into `Critics' Picks — All Time`, an append-only playlist that is never archived — the single place to see everything ever collected, since the main playlist rolls over each quarter.
 - **Multi-channel Notifications**: Sends execution summaries via LINE, Telegram, and Slack — including an alert when Spotify authorization expires, instead of failing the schedule silently.
 - **Local Backup**: Retains quarterly backup copies of all track metadata under a `data/backups/YYYY/QN.json` structure.
-- **Multi-platform Export**: Generates Spotify playlist URLs that Soundiiz can map into Apple Music, YouTube Music, Tidal, etc.
+- **Export**: Quarterly backups to CSV/TXT, plus Spotify playlist URLs and track counts.
 - **Data Analysis**: Features source-contribution statistics, Spotify match rates, and cross-reference overlap analysis.
 - **Web Interface**: A Streamlit environment to view historical logs, data distribution, and backup archives.
 - **Playwright Support**: Provides seamless fallback to browser-rendering for Javascript-heavy scraping targets.
@@ -112,7 +110,7 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1              # standard CSV format
 ./run.sh --export Q1 --format txt # text format list
 ./run.sh --export Q1 --all        # include items ignored by Spotify
-./run.sh --export-spotify-url     # output Spotify playlist URLs for Soundiiz
+./run.sh --export-spotify-url     # output Spotify playlist URLs and track counts
 
 # Backfill the All Time cumulative playlist (main + every quarterly archive, deduped)
 ./run.sh --backfill-all-time
@@ -141,7 +139,7 @@ PYTHONPATH=src uv run python auth.py
 | Playlist | Usage |
 |----------|-------|
 | **Critics' Picks — Fresh Tracks** | Primary target playlist consisting strictly of the new quarter |
-| **Critics' Picks — All Time** | Append-only cumulative playlist, never archived. The Soundiiz → Apple Music sync source |
+| **Critics' Picks — All Time** | Append-only cumulative playlist, never archived. Everything ever collected, in one place |
 | **Critics' Picks — 2026 Q1** | Indexed archive listing all songs from 2026, Quarter 1 |
 | **Critics' Picks — 2025 Q4** | Indexed archive listing all songs from 2025, Quarter 4 |
 | ... | Generates automatically in succession |
@@ -249,15 +247,9 @@ This binds an automatic timer executing around 09:00 locally every Sunday. This 
 
 The scheduled LaunchAgent runs a single step: crawl → Spotify → All Time mirror → backup → quarterly archive → notification. If Spotify authorization has expired, the run stops early and sends an alert telling you to re-authorize (`rm .spotify_cache && ./run.sh`).
 
-#### Apple Music via Soundiiz (one-time setup)
+#### Why there is no Apple Music support
 
-Apple Music is not driven by this project. Set it up once and it keeps itself current:
-
-1. `./run.sh --backfill-all-time` — create and seed `Critics' Picks — All Time`
-2. `./run.sh --export-spotify-url` — grab the playlist link
-3. In [Soundiiz](https://soundiiz.com/) (Premium): **Auto-Sync** → source `Critics' Picks — All Time` on Spotify → destination Apple Music, weekly
-
-The All Time playlist is used as the source because the main playlist is emptied by quarterly archiving, and Soundiiz syncs one playlist at a time.
+Four approaches were tried and all removed: TuneMyMusic Selenium automation, the Apple Music REST API via a scraped Safari cookie token, manual TXT import into the macOS Music app (which only matches your existing library, never the Apple Music catalog), and Soundiiz Auto-Sync. The official MusicKit API requires a paid Apple Developer membership, and at 1500+ tracks the playlist exceeds every free transfer service's quota. Spotify is the only target platform.
 
 #### crontab Option
 
@@ -315,7 +307,7 @@ MIT License
 
 ## 繁體中文
 
-自動從全球主要音樂評論網站蒐集「最佳新曲」推薦，並同步至 Spotify 播放清單。Apple Music 由 Soundiiz Auto-Sync 從 Spotify 端鏡射，專案本身不含任何 Apple Music 程式碼。
+自動從全球主要音樂評論網站蒐集「最佳新曲」推薦，並同步至 Spotify 播放清單。Spotify 是唯一目標平台。
 
 ### 功能概覽
 
@@ -323,18 +315,16 @@ MIT License
 
 ```text
 13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
-                                                        ↓
-                                        Soundiiz Auto-Sync → Apple Music
 ```
 
 #### 核心功能
 
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
 - **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
-- **All Time 累積歌單**：所有配對成功的曲目同時鏡射至只進不出、永不歸檔的 `Critics' Picks — All Time`。Soundiiz 以此為同步來源，因此即使主歌單每季輪替，Apple Music 那份仍保有完整歷史
+- **All Time 累積歌單**：所有配對成功的曲目同時鏡射至只進不出、永不歸檔的 `Critics' Picks — All Time`。主歌單每季輪替、歷史散落在各季歸檔中，這份是唯一能一眼看完所有蒐集結果的歌單
 - **多通道通知**：LINE + Telegram + Slack 推送執行摘要；Spotify 授權失效時也會發送警示，不再靜默失敗
 - **本地備份**：以 `data/backups/YYYY/QN.json` 季度結構備份所有曲目紀錄
-- **多平台匯出**：Spotify 歌單連結匯出，供 Soundiiz 同步至 Apple Music、YouTube Music、Tidal 等
+- **匯出**：季度備份匯出為 CSV／TXT，並可輸出 Spotify 歌單連結與曲目數
 - **資料分析**：來源貢獻、Spotify 配對率、跨來源重疊分析
 - **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
 - **Playwright 支援**：JS 重度渲染網站自動 fallback 至瀏覽器渲染
@@ -421,7 +411,7 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1              # CSV 格式
 ./run.sh --export Q1 --format txt # 純文字格式
 ./run.sh --export Q1 --all        # 包含 Spotify 未找到的曲目
-./run.sh --export-spotify-url     # 輸出 Spotify 歌單連結供 Soundiiz 使用
+./run.sh --export-spotify-url     # 輸出 Spotify 歌單連結與曲目數
 
 # 回填 All Time 累積歌單（主歌單 + 所有季度歸檔，去重）
 ./run.sh --backfill-all-time
@@ -450,7 +440,7 @@ PYTHONPATH=src uv run python auth.py
 | 播放清單 | 用途 |
 |----------|------|
 | **Critics' Picks — Fresh Tracks** | 主清單，僅包含當季新曲目 |
-| **Critics' Picks — All Time** | 累積清單，只進不出、永不歸檔，Soundiiz → Apple Music 的同步來源 |
+| **Critics' Picks — All Time** | 累積清單，只進不出、永不歸檔，歷來蒐集的全部曲目 |
 | **Critics' Picks — 2026 Q1** | 歸檔清單，2026 年第 1 季的曲目 |
 | **Critics' Picks — 2025 Q4** | 歸檔清單，2025 年第 4 季的曲目 |
 | ... | 依此類推，自動建立 |
@@ -558,15 +548,9 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 
 LaunchAgent 執行單一步驟：擷取 → Spotify → All Time 鏡射 → 備份 → 季度歸檔 → 通知。若 Spotify 授權已失效，執行會提早結束並發送警示，提醒你重新授權（`rm .spotify_cache && ./run.sh`）。
 
-#### Apple Music（Soundiiz 一次性設定）
+#### 為什麼不支援 Apple Music
 
-Apple Music 不由本專案驅動，設定一次之後即自動維持同步：
-
-1. `./run.sh --backfill-all-time` — 建立並回填 `Critics' Picks — All Time`
-2. `./run.sh --export-spotify-url` — 取得歌單連結
-3. 於 [Soundiiz](https://soundiiz.com/)（Premium）設定 **Auto-Sync**：來源選 Spotify 的 `Critics' Picks — All Time`，目標選 Apple Music，頻率每週
-
-之所以用 All Time 而非主歌單，是因為主歌單每季會被歸檔搬空，而 Soundiiz 一次只能同步單一歌單。
+四種做法都試過並全數移除：TuneMyMusic Selenium 自動化、以刮取的 Safari cookie token 呼叫 Apple Music REST API、macOS 音樂 App 手動 TXT 匯入（只比對既有資料庫、不查 Apple Music 目錄）、Soundiiz Auto-Sync。官方 MusicKit API 需付費 Apple Developer 會員；而歌單已達 1500+ 首，超出所有免費轉換服務的額度。Spotify 是唯一目標平台。
 
 #### crontab 替代方案
 

@@ -2,9 +2,6 @@
 # Music Collector — 每週排程腳本
 #
 # 流程：擷取 → Spotify 搜尋 → All Time 累積歌單鏡射 → 備份 → 季度歸檔 → 通知
-#
-# Apple Music 由 Soundiiz Auto-Sync 從 Spotify 的「Critics' Picks — All Time」
-# 歌單同步，不在此腳本範圍內。
 
 set -uo pipefail
 

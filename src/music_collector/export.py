@@ -1,7 +1,7 @@
 """匯出模組：將季度備份匯出為 CSV 或純文字格式。
 
 支援格式：
-- CSV：適用於 Soundiiz 等線上轉換工具
+- CSV：適用於各家線上歌單轉換工具
 - TXT：純文字清單，方便手動搜尋
 """
 
@@ -174,7 +174,7 @@ def export_playlist(
 
 
 def export_spotify_url() -> None:
-    """輸出主歌單與 All Time 累積歌單的 Spotify 連結，供 Soundiiz 等服務同步至其他平台。"""
+    """輸出主歌單與 All Time 累積歌單的 Spotify 連結與曲目數。"""
     from .config import ALL_TIME_PLAYLIST_NAME
     from .spotify import get_spotify_client, get_or_create_playlist
 
@@ -189,11 +189,6 @@ def export_spotify_url() -> None:
             print(f"\n🎵 {playlist['name']}")
             print(f"   曲目數：{playlist['tracks']['total']} 首")
             print(f"   連結：{playlist['external_urls']['spotify']}")
-
-        print()
-        print("📱 同步至 Apple Music / YouTube Music / Tidal：")
-        print("   Soundiiz — https://soundiiz.com/ → Auto-Sync")
-        print(f"   來源請選「{ALL_TIME_PLAYLIST_NAME}」（累積歌單，不受季度歸檔影響）")
     except Exception as e:
         logger.error(f"取得 Spotify 播放清單失敗：{e}")
         print(f"錯誤：{e}")

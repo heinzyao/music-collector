@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概述
 
-自動從 13 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Apple Music 由 Soundiiz Auto-Sync 從 Spotify 端鏡射，專案本身不含 Apple Music 程式碼。
+自動從 13 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
 
 ## 開發指令
 
@@ -31,7 +31,7 @@ uv sync --extra test
 # 回填「Critics' Picks — All Time」累積歌單（主歌單 + 所有季度歸檔，去重）
 ./run.sh --backfill-all-time
 
-# 輸出主歌單與 All Time 歌單的 Spotify 連結（設定 Soundiiz 時使用）
+# 輸出主歌單與 All Time 歌單的 Spotify 連結與曲目數
 ./run.sh --export-spotify-url
 
 # 執行測試（全部）
@@ -93,43 +93,33 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 4. 在 `tests/scrapers/` 新增對應測試
 5. 用 `--dry-run` 測試
 
-## Apple Music（由 Soundiiz 外部同步）
-
-> **重要**：專案內已無任何 Apple Music 程式碼。歷來嘗試過的三種做法皆已移除 ——
-> TuneMyMusic Selenium 自動化、Apple Music REST API（Safari cookie token + `auth_server.py`）、
-> macOS 音樂 App 手動 TXT 匯入。最後一種的根本缺陷是「匯入播放清單」只比對既有資料庫、
-> 不查 Apple Music 目錄，冷門曲目結構性無法匹配。
-
-### 現行架構
+## All Time 累積歌單
 
 ```
 主歌單 Critics' Picks — Fresh Tracks（每季歸檔，只留當季）
-   └─ mirror_to_all_time() 同步鏡射
-Critics' Picks — All Time（只進不出，永不歸檔）
-   └─ Soundiiz Auto-Sync（每週）
-Apple Music 同名歌單
+   ├─ archive_previous_quarters() → Critics' Picks — YYYY QN（各季歸檔）
+   └─ mirror_to_all_time() → Critics' Picks — All Time（只進不出，永不歸檔）
 ```
 
-Soundiiz 只能盯單一歌單同步，而主歌單每季會被 `archive_previous_quarters()` 搬空，
-因此另建 All Time 累積歌單作為同步來源，確保 Apple Music 那份保有完整歷史。
+主歌單每季會被搬空、歷史散落在各季歸檔歌單中，All Time 是唯一一個能一眼看完
+所有蒐集結果的歌單。相關程式碼皆在 `spotify.py`：
 
-### 相關程式碼（皆在 `spotify.py`）
-
-- `mirror_to_all_time(sp, uris)` — 去重後寫入 All Time 歌單，`run()` 每次加入新曲目後呼叫，包 try/except（失敗不影響主流程）
+- `mirror_to_all_time(sp, uris)` — 去重後寫入，`run()` 每次加入新曲目後呼叫，包 try/except（失敗不影響主流程，下次執行會補回）
 - `backfill_all_time(sp)` — 列舉主歌單 + 所有 `Critics' Picks —` 歸檔歌單（排除 All Time 自己）回填。因為底層去重，同時是一次性初始化與事後修復工具
 - `config.ALL_TIME_PLAYLIST_NAME` — 可用環境變數 `ALL_TIME_PLAYLIST_NAME` 覆寫
 
-### Soundiiz 設定（一次性手動）
+## Apple Music：已停止支援，不要再實作
 
-1. `./run.sh --backfill-all-time` 建立並回填 All Time 歌單
-2. `./run.sh --export-spotify-url` 取得歌單連結
-3. Soundiiz Premium → Auto-Sync：source = Spotify `Critics' Picks — All Time`，
-   destination = Apple Music 同名歌單，頻率每週
-
-### 已知限制
-
-- Soundiiz 的曲目比對仍可能漏掉極冷門曲目，但它查的是 Apple Music 目錄，涵蓋率遠高於音樂 App 的本地比對
-- Auto-Sync 為單向（Spotify → Apple Music），在 Apple Music 端手動增刪不會回傳
+> **重要**：專案曾用四種方式嘗試同步 Apple Music，全部移除，**不要再提議加回來**：
+>
+> 1. **TuneMyMusic Selenium 自動化** — 網頁改版即壞
+> 2. **Apple Music REST API（Safari cookie token + `auth_server.py`）** — cookie 會過期、違反 ToS，commit `be9aeb1` 做過、`ec9bc08` 砍掉
+> 3. **macOS 音樂 App 手動 TXT 匯入** — 根本缺陷：「匯入播放清單」只比對既有資料庫、不查 Apple Music 目錄，冷門曲目結構性無法匹配
+> 4. **Soundiiz Auto-Sync 外包** — 需 Premium 訂閱，使用者不採用
+>
+> 官方 MusicKit API 需付費 Apple Developer 會員（$99/年）；而歌單已達 1500+ 首，
+> 所有免費轉換服務的額度（FreeYourMusic 600、TuneMyMusic 500、Soundiiz 200）都不夠用。
+> 結論：**Spotify 是唯一目標平台。**
 
 ## 自動排程（launchd）
 
@@ -154,7 +144,6 @@ launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 PYTHONPATH=src uv run python -m music_collector
 ```
 
-Apple Music 不在排程範圍內 —— 由 Soundiiz 在雲端依自身排程從 Spotify 拉取。
 
 ### 排程指令
 

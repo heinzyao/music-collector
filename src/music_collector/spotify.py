@@ -203,7 +203,7 @@ def clear_playlist(sp: spotipy.Spotify, playlist_id: str) -> int:
     return len(uris)
 
 
-# ── All Time 累積歌單（Soundiiz → Apple Music 的同步來源）──
+# ── All Time 累積歌單 ──
 
 
 def _get_all_time_playlist(sp: spotipy.Spotify) -> str:
@@ -218,8 +218,8 @@ def _get_all_time_playlist(sp: spotipy.Spotify) -> str:
 def mirror_to_all_time(sp: spotipy.Spotify, uris: list[str]) -> int:
     """將曲目鏡射至只進不出的 All Time 累積歌單，回傳實際新增數。
 
-    主歌單每季會被 archive_previous_quarters() 搬空，但 Soundiiz 只能盯單一
-    歌單同步，因此另外維護一份永不歸檔的累積歌單作為 Apple Music 的來源。
+    主歌單每季會被 archive_previous_quarters() 搬空、歷史散落在各季歸檔歌單中，
+    這份則永不歸檔，是唯一一個能一眼看完所有蒐集結果的歌單。
     去重後才寫入，所以重複呼叫是安全的。
     """
     if not uris:
