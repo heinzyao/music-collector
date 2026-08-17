@@ -59,7 +59,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
 - `src/music_collector/main.py` — 主流程與 CLI
-- `tests/` — 87 項測試（pytest + respx mock）
+- `tests/` — 102 項測試（pytest + respx mock）
 
 ### 擷取器技術細節
 
@@ -109,6 +109,26 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 - `mirror_to_all_time(sp, uris)` — 去重後寫入，`run()` 每次加入新曲目後呼叫，包 try/except（失敗不影響主流程，下次執行會補回）
 - `backfill_all_time(sp)` — 列舉主歌單 + 所有 `Critics' Picks —` 歸檔歌單（排除 All Time 自己）回填。因為底層去重，同時是一次性初始化與事後修復工具
 - `config.ALL_TIME_PLAYLIST_NAME` — 可用環境變數 `ALL_TIME_PLAYLIST_NAME` 覆寫
+
+## 播放清單去重（重要）
+
+**DB 的去重鍵 `(artist, title)` 與 Spotify URI 不是一對一。** 兩個來源對同一首歌的
+藝人欄寫法不同（例：Stereogum 記 `Madonna`、Slant 記 `Review: Madonna's`），就會產生
+兩筆不同的 DB 紀錄卻指向同一個 URI。因此 DB 去重擋不住播放清單重複，寫入端必須自己再去重。
+
+`add_tracks_to_playlist()` 與 `mirror_to_all_time()` 都做兩層去重：
+
+1. **比對歌單既有內容** — 先 `_get_all_playlist_tracks()` 取得現有 URI 集合
+2. **比對批次自身** — `list(dict.fromkeys(...))` 保序去重
+
+第 2 層不可省略：`backfill_all_time()` 會把主歌單與各季歸檔串接後一次送入，同一首歌
+若同時存在於多個來源歌單，只比對「歌單既有內容」擋不住（2026-08 曾因此在 All Time
+產生 69 個重複 URI）。
+
+新增任何寫入播放清單的程式碼時，都必須沿用這個模式。
+
+> 註：`run()` 不要自行記錄「已加入 N 首」—— 去重後實際加入數可能少於送入數，
+> 由 `add_tracks_to_playlist()` 自行回報才不會謊報。
 
 ## Apple Music：已停止支援，不要再實作
 
@@ -169,7 +189,7 @@ launchctl start com.music-collector
 - `.env`、`.spotify_cache`、`data/` 不可推送至 Git
 - 每個擷取器必須獨立處理例外，不可影響其他來源
 - Spotify 搜尋先用精確查詢 `track: artist:`，失敗後再用寬鬆查詢，兩者皆需通過藝人 + 曲名雙重驗證
-- 曲目去重以大小寫不敏感的 `(artist, title)` 比對
+- 曲目去重以大小寫不敏感的 `(artist, title)` 比對 —— 但這只擋 DB 層，播放清單需另行以 URI 去重（見「播放清單去重」）
 - 備份/通知/All Time 鏡射各自 try/except，失敗不影響主流程
 - `--dry-run` 模式不觸發 Spotify 操作、備份與通知
 - Spotify 認證失敗會被攔截並發送 `send_error_notification()`，不再靜默炸掉整個排程；
