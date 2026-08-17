@@ -200,8 +200,8 @@ def run(dry_run: bool = False) -> None:
 
         # 批次加入播放清單
         if spotify_uris:
+            # 實際加入數由 add_tracks_to_playlist() 自行記錄（去重後可能少於送入數）
             add_tracks_to_playlist(sp, playlist_id, spotify_uris)
-            logger.info(f"已加入 {len(spotify_uris)} 首曲目至播放清單")
 
             # 同步鏡射至 All Time 累積歌單。
             # 失敗不影響主流程：下次執行或 --backfill-all-time 都會補回。
