@@ -28,14 +28,27 @@
 - [x] CI：`pyproject.toml` 釘住 ruff 規則集（`uvx ruff` 抓最新版導致 CI 斷線）
 - [x] 文件：CLAUDE.md、README.md 移除所有 Apple Music／Soundiiz 框架
 
-## 待辦（手動）
+## 後續發現並修掉的問題
 
-1. 重新授權 Spotify：`rm .spotify_cache && ./run.sh`（refresh token 於 2026-08 被撤銷，
-   排程 8/09、8/16 連兩週失敗）
-2. `./run.sh --backfill-all-time` 回填 All Time 累積歌單
+驗證過程中滾出三個與 Apple Music 無關、但同屬資料正確性的缺陷：
+
+- **Slant 解析器**（`72b636e`）— 三種標題格式只處理得了一種，DB 已累積 17 筆爛資料。
+  另修跳過詞以整串標題比對、誤殺 `‘Music, Fashion, Film’` 的問題。12 → 13 首全對
+- **`mirror_to_all_time()` 未對批次自身去重**（`788c75a`）— 我在本次新增的程式碼的 bug。
+  backfill 串接多個來源歌單，造成 All Time 1710 筆中有 69 個重複 URI
+- **`add_tracks_to_playlist()` 未去重**（`d7dbd60`）— 既有程式碼。DB 的 `(artist, title)`
+  與 Spotify URI 非一對一，主歌單因此有 4 個重複
+
+資料清理：DB 爛資料 3 筆就地修正（由 Spotify URI 反查真實藝人）、14 筆刪除，殘留 0。
+歌單 All Time 1710 → 1638、Fresh Tracks 293 → 289，不重複曲目數皆未減少。
 
 ## Review
 
 - 淨刪除 13 個檔案；`--apple-music` 路徑完全消失，排程回到單一步驟
-- CLAUDE.md 已明文記載四種失敗做法與理由，避免日後又被提議加回來
-- `mirror_to_all_time()` 的去重讓它同時是回填與修復工具（漏掉的曲目下次跑會自動補上）
+- CLAUDE.md 已明文記載四種失敗做法與理由，避免日後又被提議加回來，
+  並新增「播放清單去重」章節說明兩層去重及其原因
+- Spotify refresh token 實測仍有效（8/09、8/16 的 `invalid_grant` 已自行恢復），
+  未刪 `.spotify_cache`；All Time 歌單先前已回填完成
+- 排程 `com.music-collector` 本就安裝且與專案內 plist 一致；已清除指向已刪腳本的
+  孤兒 agent `com.music-collector.apple-music-manual`
+- 三次端對端執行驗過三條路徑：完整流程、僅未配對曲目、無新曲目提早結束
