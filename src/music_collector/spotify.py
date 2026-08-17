@@ -227,7 +227,9 @@ def mirror_to_all_time(sp: spotipy.Spotify, uris: list[str]) -> int:
 
     playlist_id = _get_all_time_playlist(sp)
     existing = {t["uri"] for t in _get_all_playlist_tracks(sp, playlist_id)}
-    new_uris = [u for u in uris if u not in existing]
+    # dict.fromkeys 保序去重：backfill 會串接多個來源歌單，同一首歌可能重複出現，
+    # 只比對 existing 擋不住批次內部的重複
+    new_uris = list(dict.fromkeys(u for u in uris if u not in existing))
 
     for i in range(0, len(new_uris), 100):
         sp.playlist_add_items(playlist_id, new_uris[i : i + 100])

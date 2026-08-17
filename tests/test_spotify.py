@@ -47,6 +47,27 @@ def test_mirror_to_all_time_skips_existing_uris():
     sp.playlist_add_items.assert_called_once_with("all", ["spotify:track:b"])
 
 
+def test_mirror_to_all_time_dedupes_within_incoming_batch():
+    """傳入清單自身若有重複也只能加一次。
+
+    backfill_all_time() 會把主歌單與各季歸檔串接後一次送入，同一首歌若同時
+    存在於多個來源歌單就會重複出現，只比對「歌單既有內容」擋不住。
+    """
+    sp = _mock_sp(
+        playlists=[{"id": "all", "name": ALL_TIME_PLAYLIST_NAME}],
+        items_by_id={"all": []},
+    )
+
+    added = mirror_to_all_time(
+        sp, ["spotify:track:a", "spotify:track:b", "spotify:track:a"]
+    )
+
+    assert added == 2
+    sp.playlist_add_items.assert_called_once_with(
+        "all", ["spotify:track:a", "spotify:track:b"]
+    )
+
+
 def test_backfill_all_time_collects_main_and_archives_only():
     """回填應涵蓋主歌單與季度歸檔，但不得把 All Time 自己當成來源。"""
     sp = _mock_sp(
