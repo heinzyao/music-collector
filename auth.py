@@ -22,12 +22,11 @@ from music_collector.config import (
     SPOTIFY_REDIRECT_URI,
     SPOTIFY_CACHE_PATH,
 )
+# 從主程式取用同一份 scope，兩邊各寫一份會漂移（授權到的權限不夠主程式用）
+from music_collector.spotify import SCOPE
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-
-# 播放清單讀寫權限
-SCOPE = "playlist-modify-public playlist-modify-private"
 
 # 由回呼處理器設定
 auth_code = None
@@ -67,6 +66,9 @@ def main():
         scope=SCOPE,
         cache_path=str(SPOTIFY_CACHE_PATH),
         open_browser=False,  # 手動控制瀏覽器開啟時機
+        # 強制顯示帳號選擇畫面。否則瀏覽器已登入哪個帳號就直接發那個帳號的 token，
+        # 換帳號時會神不知鬼不覺地授權到舊帳號。
+        show_dialog=True,
     )
 
     # 檢查是否已有有效的快取 Token

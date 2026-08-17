@@ -25,8 +25,9 @@ from .config import (
 
 logger = logging.getLogger(__name__)
 
-# 播放清單讀寫權限
-SCOPE = "playlist-modify-public playlist-modify-private"
+# 播放清單讀寫權限。read-private 是必要的：get_or_create_playlist() 與
+# backfill_all_time() 都靠 current_user_playlists() 找歌單，少了它會 403。
+SCOPE = "playlist-modify-public playlist-modify-private playlist-read-private"
 
 
 def get_spotify_client() -> spotipy.Spotify:
