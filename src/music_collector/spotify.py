@@ -6,6 +6,7 @@
 
 import logging
 import re
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 import spotipy
@@ -135,18 +136,27 @@ def _get_all_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict
     return tracks
 
 
-def _find_playlist(sp: spotipy.Spotify, name: str) -> str | None:
-    """依名稱搜尋使用者播放清單，回傳 playlist ID 或 None。"""
+def _own_playlists(sp: spotipy.Spotify) -> Iterator[dict]:
+    """逐頁產出使用者「自己擁有」的播放清單。
+
+    current_user_playlists() 會一併回傳追蹤中的、別人擁有的歌單。只比對名稱的話，
+    追蹤了同名歌單就會鎖定到別人的那一份，之後所有寫入都會失敗。
+    """
+    user_id = sp.current_user()["id"]
     offset = 0
     while True:
-        playlists = sp.current_user_playlists(limit=50, offset=offset)
-        for pl in playlists["items"]:
-            if pl["name"] == name:
-                return pl["id"]
-        if not playlists["next"]:
+        page = sp.current_user_playlists(limit=50, offset=offset)
+        for pl in page["items"]:
+            if pl["owner"]["id"] == user_id:
+                yield pl
+        if not page.get("next"):
             break
         offset += 50
-    return None
+
+
+def _find_playlist(sp: spotipy.Spotify, name: str) -> str | None:
+    """依名稱搜尋使用者自己的播放清單，回傳 playlist ID 或 None。"""
+    return next((pl["id"] for pl in _own_playlists(sp) if pl["name"] == name), None)
 
 
 def get_or_create_playlist(
@@ -157,19 +167,12 @@ def get_or_create_playlist(
     description = description or PLAYLIST_DESCRIPTION
     user_id = sp.current_user()["id"]
 
-    # 逐頁搜尋使用者現有的播放清單
-    offset = 0
-    while True:
-        playlists = sp.current_user_playlists(limit=50, offset=offset)
-        for pl in playlists["items"]:
-            if pl["name"] == name:
-                logger.info(f"找到現有播放清單：{name} ({pl['id']})")
-                # 同步更新描述（確保描述始終為最新）
-                sp.playlist_change_details(pl["id"], description=description)
-                return pl["id"]
-        if not playlists["next"]:
-            break
-        offset += 50
+    for pl in _own_playlists(sp):
+        if pl["name"] == name:
+            logger.info(f"找到現有播放清單：{name} ({pl['id']})")
+            # 同步更新描述（確保描述始終為最新）
+            sp.playlist_change_details(pl["id"], description=description)
+            return pl["id"]
 
     # 未找到 → 建立新播放清單
     playlist = sp.user_playlist_create(
@@ -264,21 +267,15 @@ def backfill_all_time(sp: spotipy.Spotify) -> int:
     uris.extend(t["uri"] for t in _get_all_playlist_tracks(sp, main_id))
     logger.info(f"主歌單：{len(uris)} 首")
 
-    offset = 0
-    while True:
-        playlists = sp.current_user_playlists(limit=50, offset=offset)
-        for pl in playlists["items"]:
-            # 排除 All Time 自己，否則會把目標歌單當成來源
-            if (
-                pl["name"].startswith("Critics' Picks —")
-                and pl["name"] not in (PLAYLIST_NAME, ALL_TIME_PLAYLIST_NAME)
-            ):
-                archived = [t["uri"] for t in _get_all_playlist_tracks(sp, pl["id"])]
-                uris.extend(archived)
-                logger.info(f"歸檔歌單 {pl['name']}：{len(archived)} 首")
-        if not playlists.get("next"):
-            break
-        offset += 50
+    for pl in _own_playlists(sp):
+        # 排除 All Time 自己，否則會把目標歌單當成來源
+        if (
+            pl["name"].startswith("Critics' Picks —")
+            and pl["name"] not in (PLAYLIST_NAME, ALL_TIME_PLAYLIST_NAME)
+        ):
+            archived = [t["uri"] for t in _get_all_playlist_tracks(sp, pl["id"])]
+            uris.extend(archived)
+            logger.info(f"歸檔歌單 {pl['name']}：{len(archived)} 首")
 
     return mirror_to_all_time(sp, uris)
 

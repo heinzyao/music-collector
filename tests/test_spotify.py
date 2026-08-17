@@ -4,6 +4,7 @@ from music_collector.config import ALL_TIME_PLAYLIST_NAME, PLAYLIST_NAME
 from music_collector.spotify import (
     add_tracks_to_playlist,
     backfill_all_time,
+    get_or_create_playlist,
     mirror_to_all_time,
     search_track,
 )
@@ -13,6 +14,8 @@ def _mock_sp(playlists: list[dict], items_by_id: dict[str, list[str]]) -> Mock:
     """建立回傳固定歌單與曲目的 Spotify 客戶端 mock。"""
     sp = Mock()
     sp.current_user.return_value = {"id": "henry"}
+    for pl in playlists:
+        pl.setdefault("owner", {"id": "henry"})  # 未指定 owner 即視為自己的歌單
     sp.current_user_playlists.return_value = {"items": playlists, "next": None}
     sp.playlist_items.side_effect = lambda pid, **kw: {
         "items": [
@@ -37,6 +40,20 @@ def test_search_track_uses_primary_artist_for_feature():
     sp.search.assert_called_once_with(
         q="track:La Monda artist:De La Rose", type="track", limit=5,
     )
+
+
+def test_get_or_create_playlist_ignores_followed_playlist_of_same_name():
+    """追蹤中的同名歌單是別人擁有的，不可被當成自己的歌單接手寫入。"""
+    sp = _mock_sp(
+        playlists=[
+            {"id": "theirs", "name": PLAYLIST_NAME, "owner": {"id": "someone_else"}},
+        ],
+        items_by_id={},
+    )
+    sp.user_playlist_create.return_value = {"id": "mine"}
+
+    assert get_or_create_playlist(sp) == "mine"
+    sp.playlist_change_details.assert_not_called()
 
 
 def test_mirror_to_all_time_skips_existing_uris():
