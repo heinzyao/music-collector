@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概述
 
-自動從 13 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
+自動從 15 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
 
 ## 開發指令
 
@@ -49,7 +49,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 ## 架構要點
 
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
-- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（13 個擷取器）
+- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（15 個擷取器）
 - `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔、All Time 累積歌單）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
@@ -78,6 +78,8 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 | Gorilla vs. Bear | RSS | feedparser + mp3/video/on-blast 分類過濾 |
 | Bandcamp Daily | RSS | feedparser + Album of the Day 分類 + 逗號分隔解析 |
 | The Quietus | RSS | feedparser + Reviews 分類過濾 |
+| DIY | RSS | News 分類 + category tag 取藝人 + 引號取曲名（專輯名跳過） |
+| Aquarium Drunkard | RSS | ` :: ` 分隔 + 專欄黑名單 + 藝人須對得上 tag + 括號過濾現場錄音 |
 
 ### 引號處理注意事項
 
@@ -149,7 +151,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 
 - 專案內：`com.music-collector.plist`（以 `run-scheduled.sh` 為入口）
 - 安裝位置：`~/Library/LaunchAgents/com.music-collector.plist`
-- 每週日 09:00 執行，log 輸出至 `data/collector.log`
+- 每天 09:00 執行，log 輸出至 `data/collector.log`
 
 **重要**：專案內的 plist 與安裝的 plist 必須保持一致。更新後須重新安裝：
 

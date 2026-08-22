@@ -20,14 +20,14 @@ ALL_TIME_PLAYLIST_NAME = os.environ.get(
     "ALL_TIME_PLAYLIST_NAME", "Critics' Picks — All Time"
 )
 ALL_TIME_PLAYLIST_DESCRIPTION = (
-    "Critics' Picks 全曲目累積歌單｜彙整 13 家樂評媒體歷來推薦，只增不減。"
+    "Critics' Picks 全曲目累積歌單｜彙整 15 家樂評媒體歷來推薦，只增不減。"
     "由 Music Collector 自動更新。"
 )
 PLAYLIST_DESCRIPTION = (
     "每日自動策展｜彙整 Pitchfork、Stereogum、Rolling Stone、NME、SPIN、"
     "Consequence、The Line of Best Fit、Slant、Complex、Resident Advisor、"
-    "Gorilla vs. Bear、Bandcamp Daily、The Quietus "
-    "等 13 家樂評媒體的最新推薦曲目。由 Music Collector 自動更新。"
+    "Gorilla vs. Bear、Bandcamp Daily、The Quietus、DIY、Aquarium Drunkard "
+    "等 15 家樂評媒體的最新推薦曲目。由 Music Collector 自動更新。"
 )
 
 # ── 檔案路徑 ──

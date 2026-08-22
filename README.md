@@ -46,6 +46,8 @@ The following workflow is executed automatically every week:
 | Gorilla vs. Bear | RSS | Retrieves `gorillavsbear.net/feed/` via mp3/video filtering | Stable |
 | Bandcamp Daily | RSS | Uses `daily.bandcamp.com/feed` pointing to Album of the Day | Stable |
 | The Quietus | RSS | Parses `thequietus.com/feed` via Reviews designation | Stable |
+| DIY | RSS | News category, artist from tags, single name from quotes | Stable |
+| Aquarium Drunkard | RSS | ` :: ` separator, column blacklist, artist must match a tag | Stable |
 
 ### Quick Start
 
@@ -167,7 +169,7 @@ music-collector/
 │
 │   # ─── Shell scripts ───
 ├── run.sh                          # CLI manual execution macro
-├── run-scheduled.sh                # Weekly schedule wrapper (crawl → Spotify → notify)
+├── run-scheduled.sh                # Daily schedule wrapper (crawl → Spotify → notify)
 ├── clean.sh                        # Disk cleanup utility
 │
 │   # ─── macOS launchd template ───
@@ -234,7 +236,7 @@ docker compose run collector --dry-run
 docker compose run collector --stats
 ```
 
-### Weekly Automation
+### Daily Automation
 
 #### macOS launchd (Preferred Methodology)
 
@@ -243,7 +245,7 @@ cp com.music-collector.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 ```
 
-This binds an automatic timer executing around 09:00 locally every Sunday. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
+This binds an automatic timer executing around 09:00 locally every day. This trigger is bound implicitly to the XML `<dict> StartCalendarInterval` value in the file itself.
 
 The scheduled LaunchAgent runs a single step: crawl → Spotify → All Time mirror → backup → quarterly archive → notification. If Spotify authorization has expired, the run stops early and sends an alert telling you to re-authorize (`rm .spotify_cache && ./run.sh`).
 
@@ -311,10 +313,10 @@ MIT License
 
 ### 功能概覽
 
-每週自動執行以下流程：
+每天自動執行以下流程：
 
 ```text
-13 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
+15 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
 ```
 
 #### 核心功能
@@ -347,6 +349,8 @@ MIT License
 | Gorilla vs. Bear | RSS | `gorillavsbear.net/feed/` 過濾 mp3/video 分類 | 穩定 |
 | Bandcamp Daily | RSS | `daily.bandcamp.com/feed` Album of the Day | 穩定 |
 | The Quietus | RSS | `thequietus.com/feed` 過濾 Reviews 分類 | 穩定 |
+| DIY | RSS | News 分類，tag 取藝人、引號取曲名 | 穩定 |
+| Aquarium Drunkard | RSS | ` :: ` 分隔，專欄黑名單 + tag 驗證 | 穩定 |
 
 ### 快速開始
 
@@ -468,7 +472,7 @@ music-collector/
 │
 │   # ─── Shell 腳本 ───
 ├── run.sh                          # 手動執行腳本
-├── run-scheduled.sh                # 每週排程腳本（擷取 → Spotify → 通知）
+├── run-scheduled.sh                # 每日排程腳本（擷取 → Spotify → 通知）
 ├── clean.sh                        # 磁碟空間清理工具
 │
 │   # ─── macOS launchd 範本 ───
@@ -491,7 +495,7 @@ music-collector/
 │       ├── web.py                  # Streamlit Web 介面
 │       ├── clean.py                # 快取／日誌／匯出清理
 │       └── scrapers/
-│           ├── __init__.py         # 擷取器註冊表（13 個）
+│           ├── __init__.py         # 擷取器註冊表（15 個）
 │           ├── base.py             # 基礎擷取器（含 Playwright）
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
@@ -511,7 +515,7 @@ music-collector/
 │   ├── test_spotify.py             # Spotify 搜尋與 All Time 歌單測試
 │   ├── test_notify.py              # 通知模組測試
 │   ├── fixtures/html/              # HTML fixture 檔案
-│   └── scrapers/                   # 擷取器測試（13 個）
+│   └── scrapers/                   # 擷取器測試（15 個）
 └── data/                           # 本地執行資料（git-ignored）
     ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
@@ -535,7 +539,7 @@ docker compose run collector --dry-run
 docker compose run collector --stats
 ```
 
-### 每週自動排程
+### 每日自動排程
 
 #### macOS launchd（建議）
 
@@ -544,7 +548,7 @@ cp com.music-collector.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.music-collector.plist
 ```
 
-預設每週日 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
+預設每天 09:00 執行。編輯 plist 中的 `StartCalendarInterval` 可調整時間。
 
 LaunchAgent 執行單一步驟：擷取 → Spotify → All Time 鏡射 → 備份 → 季度歸檔 → 通知。若 Spotify 授權已失效，執行會提早結束並發送警示，提醒你重新授權（`rm .spotify_cache && ./run.sh`）。
 

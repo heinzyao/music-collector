@@ -17,6 +17,8 @@ from .residentadvisor import ResidentAdvisorScraper
 from .gorillavsbear import GorillaVsBearScraper
 from .bandcamp import BandcampDailyScraper
 from .quietus import TheQuietusScraper
+from .diy import DIYScraper
+from .aquariumdrunkard import AquariumDrunkardScraper
 
 ALL_SCRAPERS = [
     PitchforkScraper(),         # Pitchfork — HTML 擷取
@@ -32,4 +34,6 @@ ALL_SCRAPERS = [
     GorillaVsBearScraper(),     # Gorilla vs. Bear — RSS 擷取（獨立音樂）
     BandcampDailyScraper(),     # Bandcamp Daily — RSS 擷取（Album of the Day）
     TheQuietusScraper(),        # The Quietus — RSS 擷取（英國獨立/實驗音樂）
+    DIYScraper(),               # DIY — RSS 擷取（英國獨立樂新歌）
+    AquariumDrunkardScraper(),  # Aquarium Drunkard — RSS 擷取（迷幻/民謠/爵士）
 ]

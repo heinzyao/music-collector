@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Music Collector — 每週排程腳本
+# Music Collector — 每日排程腳本
 #
 # 流程：擷取 → Spotify 搜尋 → All Time 累積歌單鏡射 → 備份 → 季度歸檔 → 通知
 

@@ -1,54 +1,40 @@
-# Apple Music 整合移除 → Spotify 單一平台
+# 新增樂評來源：DIY 與 Aquarium Drunkard
 
 ## 背景
 
-`apple_music/api.py` 已不是整合，只剩「CSV → Tab 分隔 TXT + print 教學」，其餘 6 個函式都是恆回傳成功的 no-op stub。
-根本缺陷：macOS 音樂 App 的「匯入播放清單」只比對既有資料庫，不查 Apple Music 目錄，冷門曲目結構性無法匹配。
+現有 13 個來源。掃過 36 個候選 RSS feed 後，只有兩個值得加：
 
-原本決定改用 Soundiiz Auto-Sync 外包，後續確認**不採用 Soundiiz Premium**，
-且歌單已達 1555 首（2026-08-02），超出所有免費轉換服務額度
-（FreeYourMusic 600、TuneMyMusic 500、Soundiiz 200、SongShift 200）。
+- **DIY**（diymag.com，50 篇/日）— 英國獨立樂。藝人名直接在 RSS 的 category tag 裡，
+  曲名在引號內，不需要 NME/SPIN 那套動詞邊界猜測，是所有候選中最不易壞的。
+- **Aquarium Drunkard**（15 篇/日）— 標題一律 `Artist :: Title`，解析零難度，
+  但混雜爵士老錄音與現場版，需靠 tag 與括號過濾，淨產出預期只有個位數。
 
-**最終決策：放棄 Apple Music，Spotify 為唯一目標平台。**
-「Critics' Picks — All Time」累積歌單保留 —— 它在 Spotify 端本身就有價值：
-主歌單每季被歸檔搬空、歷史散落在各季歌單，這份是唯一能一眼看完全部的歌單。
+其餘候選不採用的理由記於同次對話：Hypebeast 訊噪比差、Under the Radar 曲名不在 RSS 標題、
+Beats Per Minute 與 Quietus 重疊、KEXP/Exclaim!/FLOOD 等 7 站無可用 feed。
 
 ## 清單
 
-- [x] `spotify.py`：`mirror_to_all_time()`、`backfill_all_time()`
-- [x] `config.py`：`ALL_TIME_PLAYLIST_NAME` / `ALL_TIME_PLAYLIST_DESCRIPTION`
-- [x] `main.py`：移除 5 個 Apple Music 函式與 4 個 CLI flag、`run(sync_apple_music=)` 參數
-- [x] `main.py`：新增 `--backfill-all-time`
-- [x] `main.py`：Spotify 認證失敗改為捕捉 + 發通知（原本裸呼叫，token 撤銷會靜默炸掉排程）
-- [x] `notify.py`：移除 Apple Music 通知，新增 `send_error_notification()`
-- [x] `export.py`：移除 `export_combined_spotify()` 與轉換服務教學文字
-- [x] 刪除 `src/music_collector/apple_music/`、6 個腳本、2 個 plist
-- [x] `run-scheduled.sh`：回到單一步驟
-- [x] 測試：刪 `test_apple_music_api.py`、改寫 `test_notify.py`、`test_spotify.py` 補 All Time 測試
-- [x] CI：`pyproject.toml` 釘住 ruff 規則集（`uvx ruff` 抓最新版導致 CI 斷線）
-- [x] 文件：CLAUDE.md、README.md 移除所有 Apple Music／Soundiiz 框架
-
-## 後續發現並修掉的問題
-
-驗證過程中滾出三個與 Apple Music 無關、但同屬資料正確性的缺陷：
-
-- **Slant 解析器**（`72b636e`）— 三種標題格式只處理得了一種，DB 已累積 17 筆爛資料。
-  另修跳過詞以整串標題比對、誤殺 `‘Music, Fashion, Film’` 的問題。12 → 13 首全對
-- **`mirror_to_all_time()` 未對批次自身去重**（`788c75a`）— 我在本次新增的程式碼的 bug。
-  backfill 串接多個來源歌單，造成 All Time 1710 筆中有 69 個重複 URI
-- **`add_tracks_to_playlist()` 未去重**（`d7dbd60`）— 既有程式碼。DB 的 `(artist, title)`
-  與 Spotify URI 非一對一，主歌單因此有 4 個重複
-
-資料清理：DB 爛資料 3 筆就地修正（由 Spotify URI 反查真實藝人）、14 筆刪除，殘留 0。
-歌單 All Time 1710 → 1638、Fresh Tracks 293 → 289，不重複曲目數皆未減少。
+- [x] `scrapers/diy.py` — RSS，News 分類 + tag 取藝人 + 引號取曲名
+- [x] DIY：處理「宣布專輯 X 並釋出單曲 Y」的雙引號標題，須取單曲而非專輯
+- [x] `scrapers/aquariumdrunkard.py` — RSS，` :: ` 分隔 + tag/括號過濾
+- [x] `scrapers/__init__.py` — 註冊兩個擷取器
+- [x] `tests/scrapers/test_diy.py`、`test_aquariumdrunkard.py`
+- [x] 實跑 `--dry-run` 確認兩個來源都有非零產出
+- [x] 文件：CLAUDE.md 擷取器表格、README 來源清單、13 → 15
 
 ## Review
 
-- 淨刪除 13 個檔案；`--apple-music` 路徑完全消失，排程回到單一步驟
-- CLAUDE.md 已明文記載四種失敗做法與理由，避免日後又被提議加回來，
-  並新增「播放清單去重」章節說明兩層去重及其原因
-- Spotify refresh token 實測仍有效（8/09、8/16 的 `invalid_grant` 已自行恢復），
-  未刪 `.spotify_cache`；All Time 歌單先前已回填完成
-- 排程 `com.music-collector` 本就安裝且與專案內 plist 一致；已清除指向已刪腳本的
-  孤兒 agent `com.music-collector.apple-music-manual`
-- 三次端對端執行驗過三條路徑：完整流程、僅未配對曲目、無新曲目提早結束
+- 兩個擷取器共 15 個來源，`--dry-run` 實跑 15 個全部非零；新來源當次貢獻
+  DIY 19 首、Aquarium Drunkard 7 首
+- **DIY 的雙引號問題確實存在且已處理**：「Jamie T returns with new album
+  ‘Ghosts (100 Days of Morning)’ and shares single ‘3310’」這類標題有兩組引號，
+  依引號前 30 字內的用字（album/LP/EP vs single/track/song）決定取哪一組。
+  實跑驗證取到 `3310` 而非專輯名
+- **Aquarium Drunkard 用「藝人名必須對得上 category tag」擋未知專欄**，
+  而非只靠黑名單 —— 實測 `Transmissions ::`（Podcast）與 `Black Rock ::`
+  都是靠這條規則擋下的，日後新增專欄不必回頭改程式
+- 曲名側含 `(` 一律跳過：該站大量現場與 archival 錄音的場地／年份註記都在括號裡，
+  這些在 Spotify 幾乎搜不到。寧可過濾過度，不讓雜訊進歌單
+- 掃過的 36 個 feed 中，7 站（KEXP、Exclaim!、Northern Transmissions、FLOOD、
+  Mixmag、Passion of the Weiss、Sputnikmusic）已無可用 RSS，不必再試
+- 歌單描述同步更新為 15 家並加入兩個新來源名稱（224 字元，未超過 Spotify 300 上限）
