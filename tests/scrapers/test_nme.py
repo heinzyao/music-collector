@@ -21,6 +21,7 @@ class TestNMEScraper:
         scraper = NMEScraper()
         tracks = scraper.fetch_tracks()
 
+        # fixture 含一則 /reviews/album/ 項目，應被選擇器排除
         assert len(tracks) == 3
         assert tracks[0].artist == "Harry Styles"
         assert tracks[0].title == "Aperture"

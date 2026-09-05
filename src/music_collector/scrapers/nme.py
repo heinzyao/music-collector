@@ -37,9 +37,10 @@ class NMEScraper(BaseScraper):
         soup = BeautifulSoup(resp.text, "lxml")
 
         # 從曲目評論列表頁提取標題
-        for heading in soup.select(
-            ".entry-title a, h3.entry-title a, .td_module_wrap .entry-title a"
-        )[:MAX_TRACKS_PER_SOURCE]:
+        # 2026-09 改版：站台換成 Tailwind 版型，舊的 .entry-title/.td_module_wrap 已不存在
+        for heading in soup.select('article h3 a[href*="/reviews/track/"]')[
+            :MAX_TRACKS_PER_SOURCE
+        ]:
             text = self.clean_text(heading.get_text())
             if not text or len(text) < 5:
                 continue
