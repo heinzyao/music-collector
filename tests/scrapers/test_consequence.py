@@ -20,10 +20,13 @@ class TestConsequenceScraper:
         scraper = ConsequenceScraper()
         tracks = scraper.fetch_tracks()
 
-        assert len(tracks) == 3
+        assert len(tracks) == 4
         assert tracks[0].artist == "Poison Ruin"
         assert tracks[0].title == "Eidolon"
         assert tracks[0].source == "Consequence"
+        # 動詞 "Show" 不在 _VERB_PATTERNS 內，只有 URL slug 能切出藝人名
+        assert tracks[3].artist == "Fake Names"
+        assert tracks[3].title == "Until It's Normal"
 
 
 class TestParseConsequenceTitle:
@@ -47,3 +50,34 @@ class TestParseConsequenceTitle:
     def test_parse_title(self, title, expected):
         result = ConsequenceScraper._parse_consequence_title(title)
         assert result == expected
+
+    @pytest.mark.parametrize(
+        "title, href, expected",
+        [
+            # 動詞不在清單內，靠 slug 切出藝人名
+            (
+                'Heavy Song of the Week: Fake Names Show Power Pop Mastery on "Until It\'s Normal"',
+                "https://consequence.net/2026/09/heavy-song-of-the-week-fake-names-until-its-normal/",
+                ("Fake Names", "Until It's Normal"),
+            ),
+            (
+                'Heavy Song of the Week: Sigh Transform into Melodic Folk Metal Magicians on "Unputenpu"',
+                "https://consequence.net/2026/07/heavy-song-of-the-week-sigh-unputenpu/",
+                ("Sigh", "Unputenpu"),
+            ),
+            # 所有格開頭
+            (
+                'Heavy Song of the Week: Godflesh\'s Farewell Starts with the Thrilling "Living/Ending"',
+                "https://consequence.net/2026/08/heavy-song-of-the-week-godflesh-living-ending/",
+                ("Godflesh", "Living/Ending"),
+            ),
+            # slug 格式不符 → 退回動詞清單
+            (
+                'Heavy Song of the Week: Mastodon Get Feral Again with "Barbarians Blood"',
+                "/some/unrelated/path/",
+                ("Mastodon", "Barbarians Blood"),
+            ),
+        ],
+    )
+    def test_parse_title_with_slug(self, title, href, expected):
+        assert ConsequenceScraper._parse_consequence_title(title, href) == expected

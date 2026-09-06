@@ -30,11 +30,15 @@ class TestRollingStoneScraper:
         scraper = RollingStoneScraper()
         tracks = scraper.fetch_tracks()
 
-        # 標題直接解析出 1 首 + 文章中 3 首
         assert len(tracks) >= 1
-        # 至少包含從 headline 直接解析出的 Charli XCX
         sources = {t.source for t in tracks}
         assert "Rolling Stone" in sources
+
+        pairs = {(t.artist, t.title) for t in tracks}
+        # 藝人名含逗號時不可被截斷成 "Creator"
+        assert ("AZ Chike feat. Tyler, the Creator", "Look Like My Mama") in pairs
+        # 段尾常被接上側欄的 Trending Stories 文字，不可污染曲名
+        assert ("Angela Autumn", "I Don\u2019t Think About You At All") in pairs
 
 
 class TestParseRecommendationHeadline:
@@ -58,3 +62,19 @@ class TestParseRecommendationHeadline:
         scraper = RollingStoneScraper()
         result = scraper._parse_recommendation_headline("Regular News Title")
         assert result is None
+
+    def test_skips_film_news_with_quoted_words(self):
+        """影劇新聞會命中 Debut/Premiere 關鍵詞，但藝人名含引號，應被擋下。"""
+        scraper = RollingStoneScraper()
+        result = scraper._parse_recommendation_headline(
+            "Phoebe Bridgers Talks \u2018Super Intimidating\u2019 Acting Debut "
+            "at \u2018Primetime\u2019 Venice Premiere"
+        )
+        assert result is None
+
+    def test_premieres_new_song_still_parses(self):
+        scraper = RollingStoneScraper()
+        result = scraper._parse_recommendation_headline(
+            "Beyonc\u00e9 Premieres New Song \u2018Cozy\u2019"
+        )
+        assert result == ("Beyonc\u00e9", "Cozy")

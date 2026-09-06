@@ -12,7 +12,6 @@ from .nme import NMEScraper
 from .spin import SpinScraper
 from .rollingstone import RollingStoneScraper
 from .slant import SlantScraper
-from .complex import ComplexScraper
 from .residentadvisor import ResidentAdvisorScraper
 from .gorillavsbear import GorillaVsBearScraper
 from .bandcamp import BandcampDailyScraper
@@ -29,7 +28,6 @@ ALL_SCRAPERS = [
     SpinScraper(),              # SPIN — HTML 擷取（月度精選）
     RollingStoneScraper(),      # Rolling Stone — HTML 擷取（音樂新聞與特輯）
     SlantScraper(),             # Slant Magazine — HTML 擷取（樂評標題）
-    ComplexScraper(),           # Complex — HTML 擷取（嘻哈/R&B 為主）
     ResidentAdvisorScraper(),   # Resident Advisor — HTML 擷取（電子音樂，JS 渲染受限）
     GorillaVsBearScraper(),     # Gorilla vs. Bear — RSS 擷取（獨立音樂）
     BandcampDailyScraper(),     # Bandcamp Daily — RSS 擷取（Album of the Day）

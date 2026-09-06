@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 專案概述
 
-自動從 15 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
+自動從 14 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
 
 ## 開發指令
 
@@ -49,7 +49,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 ## 架構要點
 
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
-- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（15 個擷取器）
+- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（14 個擷取器）
 - `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔、All Time 累積歌單）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
@@ -69,11 +69,10 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 | Stereogum | RSS | feedparser + 分類過濾 + 多格式標題解析 |
 | NME | HTML | `/reviews/track` 頁面，敘述性標題解析（所有格 + 動詞短語分離） |
 | SPIN | HTML | `/new-music/` 頁面，typographic 引號匹配 + 動詞短語分離 |
-| Consequence | HTML | 引號提取曲名 + `_extract_artist_from_prefix()` 動詞邊界偵測 |
+| Consequence | HTML | 引號提取曲名 + 文章 URL slug 定位藝人名（動詞清單為備選） |
 | Line of Best Fit | HTML | 所有格 `'s` 優先策略 + 擴展動詞清單 |
-| Rolling Stone | HTML | 二階段：索引頁多頁掃描（≤3 頁）+ URL slug 匹配 → 文章頁提取曲目 |
+| Rolling Stone | HTML | 二階段：索引頁多頁掃描（≤3 頁）→ 文章頁以段首錨定 regex 取「Artist, “Title”」 |
 | Slant | HTML | 三種標題格式（藝人在引號前／後／帶所有格）+ 動詞邊界 + JS/Cloudflare 偵測 |
-| Complex | HTML | `/music` + `/tag/best-new-music` + JS 偵測 + Playwright fallback |
 | Resident Advisor | HTML | Next.js 偵測 + Playwright fallback |
 | Gorilla vs. Bear | RSS | feedparser + mp3/video/on-blast 分類過濾 |
 | Bandcamp Daily | RSS | feedparser + Album of the Day 分類 + 逗號分隔解析 |

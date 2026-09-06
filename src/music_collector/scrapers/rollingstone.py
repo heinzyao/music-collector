@@ -67,6 +67,16 @@ _RECAP_KEYWORDS = [
 ]
 
 
+# 推薦清單的單筆格式：「Artist, “Title” (YouTube)」
+# artist 用非貪婪 .+? 並錨定段首，讓含逗號的藝人名（"Beyoncé, Selena"、
+# "AZ Chike feat. Tyler, the Creator"）能完整保留：非貪婪會逐步擴張，
+# 直到逗號後面真的接引號才成立。
+_ENTRY_RE = re.compile(
+    r"^(?P<artist>.+?),\s*"
+    r"(?:\u201c(?P<curly>[^\u201d]+)\u201d|\"(?P<straight>[^\"]+)\")"
+)
+
+
 class RollingStoneScraper(BaseScraper):
     name = "Rolling Stone"
 
@@ -92,8 +102,10 @@ class RollingStoneScraper(BaseScraper):
             if len(tracks) >= MAX_TRACKS_PER_SOURCE:
                 break
 
-        logger.info(f"Rolling Stone：找到 {len(tracks[:MAX_TRACKS_PER_SOURCE])} 首曲目")
-        return tracks[:MAX_TRACKS_PER_SOURCE]
+        # 索引頁跨頁會重複出現同一張卡片（且直/彎引號兩種版本並存），最後統一去重
+        unique = self._deduplicate_tracks(tracks)[:MAX_TRACKS_PER_SOURCE]
+        logger.info(f"Rolling Stone：找到 {len(unique)} 首曲目")
+        return unique
 
     def _scan_index(self, soup: BeautifulSoup) -> list[Track]:
         """掃描索引頁，僅篩選推薦類文章並提取曲目。"""
@@ -154,17 +166,20 @@ class RollingStoneScraper(BaseScraper):
 
         for p in soup.select("p.paragraph, article p"):
             text = self.clean_text(p.get_text())
-            # 匹配「Artist, "Title"」或「Artist, 'Title'」
-            for m in re.finditer(
-                r"([A-Z][\w\s.'\-]+?),\s*[\u201c\"']+(.+?)[\u201d\"']+",
-                text,
-            ):
-                artist = m.group(1).strip()
-                title = m.group(2).strip()
-                key = (artist.lower(), title.lower())
-                if len(artist) > 1 and len(title) > 1 and key not in seen:
-                    seen.add(key)
-                    tracks.append(Track(artist=artist, title=title, source=self.name))
+            # 每則推薦自成一段，所以錨定段落開頭、只取一筆。
+            # 不可用 finditer 自由掃描：藝人名含逗號時（"AZ Chike feat. Tyler,
+            # the Creator"）會從最後一個逗號起算而截斷成 "Creator"。
+            # 段尾常被接上側欄的 Trending Stories 文字，不收尾錨定即可忽略。
+            m = _ENTRY_RE.match(text)
+            if not m:
+                continue
+
+            artist = m.group("artist").strip()
+            title = (m.group("curly") or m.group("straight")).strip()
+            key = (artist.lower(), title.lower())
+            if len(artist) > 1 and len(title) > 1 and key not in seen:
+                seen.add(key)
+                tracks.append(Track(artist=artist, title=title, source=self.name))
 
         return tracks
 
@@ -197,8 +212,11 @@ class RollingStoneScraper(BaseScraper):
             return m.group(1).strip(), m.group(2).strip()
 
         # 「Artist Premieres/Debuts/Unveils New Song 'Title'」
+        # 藝人名不得含引號：擋掉「Phoebe Bridgers Talks 'Super Intimidating'
+        # Acting Debut at 'Primetime' Venice Premiere」這類影劇新聞，
+        # 它會被 Debut/Premiere 關鍵詞誤判成新歌發表。
         m = re.match(
-            r"^(.+?)\s+(?:Premieres?|Debuts?|Unveils?)"
+            r"^([^'\u2018\u2019\u201c\u201d\"]+?)\s+(?:Premieres?|Debuts?|Unveils?)"
             r".*?['\u2018\u201c\"]+(.+?)['\u2019\u201d\"]+",
             text,
         )

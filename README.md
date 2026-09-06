@@ -41,7 +41,6 @@ The following workflow is executed automatically every week:
 | SPIN | HTML | Parses the `/new-music/` directory | Stable |
 | Rolling Stone | HTML | Combines index pages along with track features | Stable |
 | Slant Magazine | HTML | `/music/` track review pages (includes JS verification) | Stable |
-| Complex | HTML | Extracts from `/music` (requires Playwright fallback) | JS rendered |
 | Resident Advisor | HTML | Queries `ra.co/reviews/singles` (requires Playwright fallback) | JS rendered |
 | Gorilla vs. Bear | RSS | Retrieves `gorillavsbear.net/feed/` via mp3/video filtering | Stable |
 | Bandcamp Daily | RSS | Uses `daily.bandcamp.com/feed` pointing to Album of the Day | Stable |
@@ -202,7 +201,6 @@ music-collector/
 │           ├── spin.py             # SPIN (HTML)
 │           ├── rollingstone.py     # Rolling Stone (HTML)
 │           ├── slant.py            # Slant Magazine (HTML + JS detection)
-│           ├── complex.py          # Complex (HTML + Playwright)
 │           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
 │           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
 │           ├── bandcamp.py         # Bandcamp Daily (RSS)
@@ -316,7 +314,7 @@ MIT License
 每天自動執行以下流程：
 
 ```text
-15 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
+14 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
 ```
 
 #### 核心功能
@@ -344,7 +342,6 @@ MIT License
 | SPIN | HTML | `/new-music/` 分類頁面 | 穩定 |
 | Rolling Stone | HTML | 音樂新聞與特輯索引頁 + 文章頁 | 穩定 |
 | Slant Magazine | HTML | `/music/` 樂評頁（含 JS 偵測） | 穩定 |
-| Complex | HTML | `/music` 等（含 JS 偵測 + Playwright fallback） | JS 渲染 |
 | Resident Advisor | HTML | `ra.co/reviews/singles`（含 Playwright fallback） | JS 渲染 |
 | Gorilla vs. Bear | RSS | `gorillavsbear.net/feed/` 過濾 mp3/video 分類 | 穩定 |
 | Bandcamp Daily | RSS | `daily.bandcamp.com/feed` Album of the Day | 穩定 |
@@ -495,7 +492,7 @@ music-collector/
 │       ├── web.py                  # Streamlit Web 介面
 │       ├── clean.py                # 快取／日誌／匯出清理
 │       └── scrapers/
-│           ├── __init__.py         # 擷取器註冊表（15 個）
+│           ├── __init__.py         # 擷取器註冊表（14 個）
 │           ├── base.py             # 基礎擷取器（含 Playwright）
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
@@ -505,7 +502,6 @@ music-collector/
 │           ├── spin.py             # SPIN (HTML)
 │           ├── rollingstone.py     # Rolling Stone (HTML)
 │           ├── slant.py            # Slant Magazine (HTML + JS 偵測)
-│           ├── complex.py          # Complex (HTML + Playwright)
 │           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
 │           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
 │           ├── bandcamp.py         # Bandcamp Daily (RSS)
@@ -515,7 +511,7 @@ music-collector/
 │   ├── test_spotify.py             # Spotify 搜尋與 All Time 歌單測試
 │   ├── test_notify.py              # 通知模組測試
 │   ├── fixtures/html/              # HTML fixture 檔案
-│   └── scrapers/                   # 擷取器測試（15 個）
+│   └── scrapers/                   # 擷取器測試（14 個）
 └── data/                           # 本地執行資料（git-ignored）
     ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
