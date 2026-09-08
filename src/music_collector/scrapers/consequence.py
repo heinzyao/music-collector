@@ -13,7 +13,7 @@ import re
 
 from bs4 import BeautifulSoup
 
-from .base import BaseScraper, Track
+from .base import BaseScraper, Track, slugify
 from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
@@ -118,18 +118,6 @@ class ConsequenceScraper(BaseScraper):
         return None
 
 
-def _slugify(text: str) -> str:
-    """轉成與 Consequence URL 相同的 slug 形式。
-
-    重點：縮寫的撇號是「刪除」而非當成分隔符
-    （"Until It's Normal" → until-its-normal，不是 until-it-s-normal）。
-    """
-    text = re.sub(r"['\u2019]s?$", "", text.strip())  # 先去所有格
-    text = text.replace("'", "").replace("\u2019", "")
-    text = text.lower().replace("&", "and")
-    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text)).strip("-")
-
-
 def _artist_from_slug(prefix: str, title: str, href: str) -> str:
     """用文章 URL slug 決定 prefix 中哪幾個字是藝人名。
 
@@ -143,14 +131,14 @@ def _artist_from_slug(prefix: str, title: str, href: str) -> str:
     if post == href.rstrip("/").rsplit("/", 1)[-1]:
         return ""  # slug 不含預期前綴，格式不符
 
-    artist_slug = re.sub(r"-?" + re.escape(_slugify(title)) + r"$", "", post)
+    artist_slug = re.sub(r"-?" + re.escape(slugify(title)) + r"$", "", post)
     if not artist_slug:
         return ""
 
     words = prefix.split()
     for n in range(len(words), 0, -1):
         candidate = " ".join(words[:n])
-        if _slugify(candidate) == artist_slug:
+        if slugify(candidate) == artist_slug:
             return re.sub(r"['\u2019]s?$", "", candidate).strip()
     return ""
 

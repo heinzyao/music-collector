@@ -5,6 +5,7 @@
 
 import logging
 import re
+import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -169,3 +170,23 @@ class BaseScraper(ABC):
         """清理文字：移除多餘空白、HTML 實體等。"""
         text = re.sub(r"\s+", " ", text).strip()
         return text
+
+
+def slugify(text: str, amp: str = "and") -> str:
+    """轉成網址 slug，用於比對文章 URL。
+
+    Consequence 與 The Line of Best Fit 的 slug 都把藝人名寫在前面，比動詞清單
+    可靠得多 —— 但要對得上必須複製它們的幾個習慣：
+
+    - 縮寫的撇號是「刪除」而非當成分隔符（It's Normal → its-normal）
+    - 重音字母折成 ASCII（Chloé → chloe、Motörhead → motorhead）
+    - 所有格 's 先去掉（Godflesh's → godflesh）
+
+    `amp` 控制 & 的寫法：多數站台寫成 and，LOBF 則直接省略，故需兩種都試。
+    """
+    text = re.sub(r"['\u2019]s?$", "", text.strip())
+    text = text.replace("'", "").replace("\u2019", "")
+    decomposed = unicodedata.normalize("NFKD", text)
+    text = "".join(c for c in decomposed if not unicodedata.combining(c)).lower()
+    text = text.replace("&", amp)
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text)).strip("-")

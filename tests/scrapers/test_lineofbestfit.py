@@ -31,27 +31,58 @@ class TestParseLOBFTitle:
     """_parse_lobf_title() 靜態方法測試。"""
 
     @pytest.mark.parametrize(
-        "title, expected",
+        "title, href, expected",
         [
-            # 動詞清單匹配
+            # slug 定位藝人名：敘述句再長也切得準
             (
-                "MX LONELY numb the pain on full-intensity eruption 'Anesthetic'",
-                ("MX LONELY", "Anesthetic"),
+                "Yuma Koda revisits the cinema of his childhood on delicate "
+                "ballad \u2018ende\u2019",
+                "/tracks/yuma-koda-ende",
+                ("Yuma Koda", "ende"),
             ),
-            # 動詞清單匹配（多字藝人名）
+            # 團名本身含 the/of，不能在第一個小寫字就停
             (
-                "Phoebe Bridgers shares haunting new track 'Kyoto'",
-                ("Phoebe Bridgers", "Kyoto"),
+                "The Healing Power of Horses defy pop expectations on "
+                "off-the-wall \u2018TOURNIQUET\u2019",
+                "/tracks/the-healing-power-of-horses-tourniquet",
+                ("The Healing Power of Horses", "TOURNIQUET"),
             ),
-            # 正規表達式（大寫藝人名）
+            # LOBF 的 slug 直接省略 &，不是寫成 and
             (
-                "Phoebe Bridgers explores longing on 'Moon Song'",
+                "Captain Tallen & the Benevolent Entities on "
+                "\u2018Spotted Lantern Fly\u2019",
+                "/tracks/captain-tallen-the-benevolent-entities",
+                ("Captain Tallen & the Benevolent Entities", "Spotted Lantern Fly"),
+            ),
+            # 重音字母在 slug 中被折成 ASCII
+            (
+                "Chlo\u00e9 Caillet turns up the heat on \u2018Change\u2019",
+                "/tracks/chloe-caillet-change",
+                ("Chlo\u00e9 Caillet", "Change"),
+            ),
+            # 所有格須從藝人名去掉
+            (
+                "Sin Clair\u2019s \u201cAffirmations #2\u201d is a considered "
+                "exercise in restraint",
+                "/tracks/sin-clair-affirmations-2",
+                ("Sin Clair", "Affirmations #2"),
+            ),
+            # 兩組引號時取最後一組（曲名在句末）
+            (
+                "iKeda brings \u2018bubble riddim\u2019 universe to life on "
+                "\u201cGo!\u201d",
+                "/tracks/ikeda-go",
+                ("iKeda", "Go!"),
+            ),
+            # 沒有 href → 退回大小寫啟發式
+            (
+                "Phoebe Bridgers explores longing on \u2018Moon Song\u2019",
+                "",
                 ("Phoebe Bridgers", "Moon Song"),
             ),
             # 無引號
-            ("No quotes in this title at all", None),
+            ("No quotes in this title at all", "/tracks/whatever", None),
         ],
     )
-    def test_parse_title(self, title, expected):
-        result = LineOfBestFitScraper._parse_lobf_title(title)
-        assert result == expected
+    def test_parse_title(self, title, href, expected):
+        assert LineOfBestFitScraper._parse_lobf_title(title, href) == expected

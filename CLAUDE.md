@@ -70,7 +70,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 | NME | HTML | `/reviews/track` 頁面，敘述性標題解析（所有格 + 動詞短語分離） |
 | SPIN | RSS | `/new-music/feed/`，引號取曲名 + category tag 取藝人（tag 可在標題任一處） |
 | Consequence | HTML | 引號提取曲名 + 文章 URL slug 定位藝人名（動詞清單為備選） |
-| Line of Best Fit | HTML | 所有格 `'s` 優先策略 + 擴展動詞清單 |
+| Line of Best Fit | HTML | 文章 URL slug 定位藝人名，備選為所有格與大小寫啟發式 |
 | Rolling Stone | HTML | 二階段：索引頁多頁掃描（≤3 頁）→ 文章頁以段首錨定 regex 取「Artist, “Title”」 |
 | Slant | HTML | 三種標題格式（藝人在引號前／後／帶所有格）+ 動詞邊界 + JS/Cloudflare 偵測 |
 | Resident Advisor | HTML | Next.js 偵測 + Playwright fallback |

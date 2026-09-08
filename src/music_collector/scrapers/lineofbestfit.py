@@ -4,7 +4,10 @@
 擷取方式：解析 /tracks 頁面中的文章連結。
 標題格式：「ARTIST NAME [動詞描述] 'Song Title'」
   例如：「MX LONELY numb the pain on full-intensity eruption 'Anesthetic'」
-  藝人名通常為大寫，曲名在末尾的引號中。
+
+藝人名以文章 URL slug 定位（/tracks/yuma-koda-ende → 藝人 slug 在最前面），
+比從敘述句猜動詞邊界可靠。LOBF 的 RSS 只有 News、不含 track 評論，也沒有
+藝人 tag，所以無法比照 SPIN 用 category。
 """
 
 import logging
@@ -12,7 +15,7 @@ import re
 
 from bs4 import BeautifulSoup
 
-from .base import BaseScraper, Track
+from .base import BaseScraper, Track, slugify
 from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
@@ -35,7 +38,7 @@ class LineOfBestFitScraper(BaseScraper):
             if not text or len(text) < 10:
                 continue
 
-            parsed = self._parse_lobf_title(text)
+            parsed = self._parse_lobf_title(text, link.get("href", ""))
             if parsed:
                 artist, title = parsed
                 tracks.append(Track(artist=artist, title=title, source=self.name))
@@ -45,27 +48,24 @@ class LineOfBestFitScraper(BaseScraper):
         return unique
 
     @staticmethod
-    def _parse_lobf_title(text: str) -> tuple[str, str] | None:
+    def _parse_lobf_title(text: str, href: str = "") -> tuple[str, str] | None:
         """解析 LOBF 文章標題，提取藝人與曲名。
 
         LOBF 標題格式：「ARTIST NAME [動詞描述] 'Song Title'」
-        策略：先從末尾引號中提取曲名，再從開頭提取藝人名。
-
-        藝人名辨識：
-          1. 處理所有格（'s）：如 "Charlie Le Mindu's musical project..." → "Charlie Le Mindu"
-          2. 正規表達式匹配：藝人名為大寫/首字大寫，第一個全小寫動詞之前的部分
-          3. 動詞清單匹配：用擴充的動詞清單作為備選
+        策略：先從末尾引號中提取曲名，再用 URL slug 定位藝人名；
+        slug 對不上時退回大小寫與所有格的啟發式規則。
         """
-        # 從末尾的引號中提取曲名
-        m = re.search(
-            r"['\u2018\u2019\u201c\u201d\"]+(.+?)['\u2018\u2019\u201c\u201d\"]+\s*$",
-            text,
-        )
-        if not m:
+        found = _last_quoted(text)
+        if not found:
             return None
-        title = m.group(1).strip()
+        title, quote_start = found
 
-        prefix = text[: m.start()].strip()
+        prefix = text[:quote_start].strip()
+
+        # === 策略 0：URL slug（最可靠）===
+        artist = _artist_from_slug(prefix, href)
+        if artist:
+            return artist, title
 
         # === 策略 1：處理所有格 's ===
         # "Charlie Le Mindu's musical project MUCHAS PROBLEMAS..." → "Charlie Le Mindu"
@@ -75,13 +75,15 @@ class LineOfBestFitScraper(BaseScraper):
             if artist:
                 return artist, title
 
-        # === 策略 2：正規表達式 — 大寫字開頭，遇到小寫字（動詞）即停止 ===
-        # 允許的小寫連接詞：and, &, the, of, de, von, van, feat, ft, x, vs
+        # === 策略 2：大寫字開頭，遇到小寫字（動詞）即停止 ===
+        # 後續的字可以是另一個大寫字，或清單內的小寫連接詞。
+        # 原本少了字與字之間的 \s+，"Phoebe Bridgers" 這種多字藝人名一直匹配不到。
         artist_m = re.match(
             r"^("
-            r"(?:[A-Z0-9\u00C0-\u024F][\w.\u00C0-\u024F-]*"
-            r"(?:\s+(?:and|&|the|of|de|von|van|feat\.?|ft\.?|x|vs\.?)\s+)?)"
-            r"+)"
+            r"[A-Z0-9\u00C0-\u024F][\w.\u00C0-\u024F-]*"
+            r"(?:\s+(?:and|&|the|of|de|von|van|feat\.?|ft\.?|x|vs\.?"
+            r"|[A-Z0-9\u00C0-\u024F][\w.\u00C0-\u024F-]*))*"
+            r")"
             r"(?:\s+[a-z])",
             prefix,
         )
@@ -90,32 +92,46 @@ class LineOfBestFitScraper(BaseScraper):
             if artist:
                 return artist, title
 
-        # === 策略 3：動詞 regex 切分 ===
-        artist = BaseScraper._extract_artist_before_verb(prefix, _VERB_RE)
-        artist = artist.strip().strip(",").strip()
-        if artist and title:
-            return artist, title
-
         return None
 
 
-# 動詞模式：用於辨識藝人名結束、描述文字開始的位置
-_VERB_RE = re.compile(
-    r"\b(?:"
-    r"shares?|unveils?|releases?|announces?|debuts?|delivers?|drops?|"
-    r"returns?|confronts?|explores?|channels?|captures?|embraces?|"
-    r"numbs?|skewers?|soars?|dives?|finds?|reveals?|offers?|"
-    r"brings?|opens?|closes?|paints?|wrestles?|navigates?|"
-    r"plays?|feels?|demands?|draws?|moves?|gives?|longs?|"
-    r"marries|marry|steers?|wades?|resurrects?|sharpens?|"
-    r"does|do|is|are|has|have|gets?|freezes?|"
-    r"takes?|makes?|goes|go|comes?|puts?|sets?|"
-    r"rides?|rises?|leads?|hits?|cuts?|runs?|turns?|"
-    r"keeps?|holds?|stands?|tells?|calls?|shows?|"
-    r"wants?|needs?|looks?|creates?|builds?|picks?|"
-    r"teams?|joins?|taps?|imagines?|weaves?|traces?|"
-    r"balances?|blends?|crafts?|evokes?|reflects?|"
-    r"searches|search|pours?|digs?|strips?|transforms?|breaks?"
-    r")\b",
-    re.IGNORECASE,
+# 曲名在標題末尾的引號中。引號成對匹配並取「最後一組」：
+# 「iKeda brings ‘bubble riddim’ universe to life on “Go!”」有兩組引號，
+# 混用字元集會從第一個開引號一路吃到最後一個收引號。
+_QUOTED = re.compile(
+    r"\u2018([^\u2019]+)\u2019"
+    r"|\u201c([^\u201d]+)\u201d"
+    r"|\"([^\"]+)\""
 )
+
+
+def _last_quoted(text: str) -> tuple[str, int] | None:
+    """取標題中最後一組成對引號，回傳（曲名, 起始位置）—— 曲名固定在句末。"""
+    matches = list(_QUOTED.finditer(text))
+    if not matches:
+        return None
+    last = matches[-1]
+    title = next(g for g in last.groups() if g is not None)
+    return title.strip(), last.start()
+
+
+def _artist_from_slug(prefix: str, href: str) -> str | None:
+    """用文章 URL slug 決定 prefix 中哪幾個字是藝人名。
+
+    slug 形如 yuma-koda-ende（藝人在前、曲名在後），所以取「最長且是 slug
+    前綴」的那組字。文字仍取自標題以保留原本的大小寫與標點。
+    & 在 LOBF 的 slug 中直接消失（captain-tallen-the-benevolent-entities），
+    故兩種寫法都試。
+    """
+    if not href or not prefix:
+        return None
+
+    slug = href.rstrip("/").rsplit("/", 1)[-1]
+    words = prefix.split()
+    for n in range(len(words), 0, -1):
+        candidate = " ".join(words[:n])
+        for variant in (slugify(candidate), slugify(candidate, amp=" ")):
+            if variant and (slug == variant or slug.startswith(variant + "-")):
+                # slug 比對時已忽略所有格，回傳的文字也要一併去掉
+                return re.sub(r"['\u2019]s?$", "", candidate).strip()
+    return None
