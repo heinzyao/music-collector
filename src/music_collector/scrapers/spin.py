@@ -1,23 +1,59 @@
-"""SPIN 擷取器（HTML）。
+"""SPIN 擷取器（RSS）。
 
-來源：spin.com — 美國搖滾與流行音樂雜誌。
-擷取方式：解析 /new-music/ 分類頁面的文章標題。
-標題格式：以敘述性標題呈現，曲名出現在引號中。
-  例如：「Cat Power Takes Us Back In Time With New EP 'Redux'」
-  例如：「Blackwater Holylight Explore Darkness on 'Not Here Not Gone'」
+來源：spinmagazine.com — 美國搖滾與流行音樂雜誌。
+擷取方式：解析 /new-music/ 的 RSS feed。
+
+原本解析 HTML 標題並靠動詞清單切出藝人名，但 SPIN 的標題是敘述句，
+藝人不一定在句首（「Critics Are Hailing 'The Gold Album' as Weezer's
+Return to Form」），動詞清單永遠補不齊。改用 feed 的 category tag 取藝人 —
+與 DIY 擷取器同一招，差別是 DIY 要求 tag 出現在標題開頭，SPIN 的藝人常在
+句中，所以只要求出現在標題任一處。
 """
 
 import logging
 import re
+import unicodedata
 
-from bs4 import BeautifulSoup
+import feedparser
 
 from .base import BaseScraper, Track
 from ..config import MAX_TRACKS_PER_SOURCE
 
 logger = logging.getLogger(__name__)
 
-URL = "https://www.spinmagazine.com/new-music/"
+FEED_URL = "https://www.spinmagazine.com/new-music/feed/"
+
+# 曲名：typographic 引號。negative lookahead 避免縮寫撇號（Where's）被當成結尾引號
+QUOTED = re.compile(r"[‘“](.+?)(?:’(?![a-zA-Z])|”)")
+
+# 欄目、分類與系統 tag，不是藝人名
+_NON_ARTIST_TAGS = {
+    "new music",
+    "reviews",
+    "news",
+    "features",
+    "lists",
+    "interviews",
+    "album review",
+    "ep review",
+    "single review",
+    "uncategorized",
+    "pushly",
+}
+
+# 非新歌發布的內容，整篇跳過
+_SKIP_KEYWORDS = [
+    "interview",
+    "obituary",
+    "dies",
+    "dead",
+    "death",
+    "tour",
+    "festival",
+    "halftime",
+    "super bowl",
+    "teases new music",
+]
 
 
 class SpinScraper(BaseScraper):
@@ -25,23 +61,28 @@ class SpinScraper(BaseScraper):
 
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []
+        feed = feedparser.parse(FEED_URL)
 
-        try:
-            resp = self._get(URL)
-        except Exception as e:
-            logger.warning(f"SPIN：頁面請求失敗: {e}")
+        if feed.bozo and not feed.entries:
+            logger.warning("SPIN：RSS feed 解析失敗")
             return tracks
 
-        soup = BeautifulSoup(resp.text, "lxml")
-
-        for heading in soup.select("h3.entry-title")[:MAX_TRACKS_PER_SOURCE]:
-            text = self.clean_text(heading.get_text())
+        for entry in feed.entries[:MAX_TRACKS_PER_SOURCE]:
+            text = self.clean_text(entry.get("title", ""))
             if not text or len(text) < 10:
                 continue
 
-            parsed = self._parse_spin_title(text)
-            if parsed:
-                artist, title = parsed
+            lower = text.lower()
+            if any(kw in lower for kw in _SKIP_KEYWORDS):
+                continue
+
+            title = self._extract_title(text)
+            if not title:
+                continue
+
+            categories = [c.get("term", "") for c in entry.get("tags", [])]
+            artist = self._match_artist_tag(text, categories)
+            if artist:
                 tracks.append(Track(artist=artist, title=title, source=self.name))
 
         unique = self._deduplicate_tracks(tracks)
@@ -49,104 +90,42 @@ class SpinScraper(BaseScraper):
         return unique
 
     @staticmethod
-    def _parse_spin_title(text: str) -> tuple[str, str] | None:
-        """解析 SPIN 文章標題，提取藝人與曲名。
+    def _extract_title(text: str) -> str | None:
+        """取出引號中的曲名。沒有引號代表標題沒帶作品名，無法送去 Spotify 搜尋。
 
-        SPIN 標題格式為敘述性句子，主要模式：
-          1. "Blackwater Holylight Explore Darkness on 'Not Here Not Gone'"
-             → Artist [verb...] on 'Title'
-          2. "On Kelly Moran's 'Mirrors,' All Is Not What It Seems"
-             → On Artist's 'Title' [...]
-          3. "30 Years Later, 'The Ghost of Tom Joad' Reminds Us..."
-             → [非藝人前綴], 'Title' [...]  — 略過，無法辨識藝人
-          4. "Melody's Echo Chamber Ascends Heavenward On 'Unclouded'"
-             → Artist [verb...] On 'Title'
-          5. "Cat Power Takes Us Back In Time With New EP 'Redux'"
-             → Artist [verb...] 'Title'
-
-        策略：使用 typographic 引號定位曲名，再從前綴提取藝人名。
+        只清掉逗號句號分號冒號 —— 那是美式排版塞進引號內的句讀（'Mirrors,'）。
+        問號驚嘆號會留著，它們通常是曲名的一部分（'WHO ASKED?'）。
         """
-        # 略過非音樂內容
-        lower = text.lower()
-        if any(
-            kw in lower
-            for kw in [
-                "interview",
-                "obituary",
-                "dies",
-                "dead",
-                "death",
-                "tour",
-                "festival",
-                "halftime",
-                "super bowl",
-                "teases new music",
-                "let it be",
-            ]
-        ):
-            return None
-
-        # 從 typographic 引號中提取曲名
-        # 使用 negative lookahead (?![a-zA-Z]) 避免將縮寫撇號（如 Where's）誤判為結尾引號
-        m = re.search(r"[\u2018\u201c](.+?)(?:\u2019(?![a-zA-Z])|\u201d)", text)
+        m = QUOTED.search(text)
         if not m:
             return None
+        return m.group(1).strip().rstrip(",.;:") or None
 
-        title = m.group(1).strip()
-        # 移除引號內曲名尾端的標點（逗號、句號、分號等）
-        title = title.rstrip(".,;:!?")
-        prefix = text[: m.start()].strip()
+    @staticmethod
+    def _match_artist_tag(text: str, categories: list[str]) -> str | None:
+        """回傳出現在標題中的那個 tag 作為藝人名。
 
-        if not title:
+        tag 清單同時含藝人與欄目名，且一篇文章可能帶多個藝人 tag（文中提到的
+        其他樂團）—— 只有真正的主角會出現在標題裡。取最長的吻合結果。
+
+        比對時去除重音：SPIN 的 tag 常寫成 ASCII（Beyonce）而標題用重音
+        （Beyoncé）。
+        """
+        folded_text = _fold(text)
+        hits = [
+            c
+            for c in categories
+            if c and c.lower() not in _NON_ARTIST_TAGS and _fold(c) in folded_text
+        ]
+        if not hits:
             return None
 
-        # === 模式：prefix 以 "On" 開頭（介詞引導句） ===
-        if prefix.lower().startswith("on "):
-            # "On Kelly Moran's 'Mirrors,'" → artist = "Kelly Moran"
-            inner = prefix[3:].strip()  # 移除 "On "
-            # 移除所有格
-            inner = re.sub(r"['\u2019]s?\s*$", "", inner).strip()
-            if inner:
-                return inner, title
-            return None
-
-        # === 略過：prefix 以數字開頭或看起來不像藝人名 ===
-        if re.match(r"^\d+\s+", prefix) or not prefix:
-            return None
-
-        # 移除所有格 's
-        prefix = re.sub(r"['\u2019]s\s*$", "", prefix).strip()
-
-        # 移除 filler 詞如 "With New EP", "On Debut LP"
-        prefix = re.sub(
-            r"\s+(?:With\s+)?(?:New\s+|Debut\s+)?(?:EP|LP|Album|Single)\s*$",
-            "",
-            prefix,
-            flags=re.IGNORECASE,
-        ).strip()
-
-        # 從 prefix 中提取藝人名（去除動詞片語）
-        artist = BaseScraper._extract_artist_before_verb(prefix, _VERB_RE)
-
-        if artist and title:
-            return artist, title
-
-        return None
+        artist = max(hits, key=len)
+        # tag 全小寫代表原始大小寫已遺失，補回標題式大小寫（MGMT 這類含大寫的 tag 不動）
+        return artist.title() if artist.islower() else artist
 
 
-# 動詞模式：用於辨識藝人名與描述文字的邊界
-_VERB_RE = re.compile(
-    r"\b(?:"
-    r"Takes?|Brings?|Makes?|Finds?|Sees?|Grows?|Drops?|Gets?|Puts?|"
-    r"Shares?|Unveils?|Releases?|Delivers?|Debuts?|Announces?|"
-    r"Explores?|Channels?|Captures?|Embraces?|Confronts?|"
-    r"Navigates?|Returns?|Continues?|Celebrates?|Enlivens?|"
-    r"Ascends?|Soars?|Dives?|Rides?|Rises?|Leads?|"
-    r"Opens?|Closes?|Plays?|Feels?|Moves?|Gives?|"
-    r"Joins?|Teams?|Taps?|Hits?|Cuts?|Runs?|Turns?|"
-    r"Keeps?|Holds?|Stands?|Tells?|Calls?|Shows?|"
-    r"Wants?|Needs?|Looks?|Creates?|Builds?|Picks?|"
-    r"Stays?|Dances?|Reminds?|Proves?|Lets?|"
-    r"Is|Are|Has|Have|Had|Was|Were|Will|Would|Still"
-    r")\b",
-)
+def _fold(text: str) -> str:
+    """小寫並移除重音，用於比對。"""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).lower()

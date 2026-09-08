@@ -38,7 +38,7 @@ The following workflow is executed automatically every week:
 | The Line of Best Fit | HTML | Tracks parsed from `/tracks` path | Stable |
 | Consequence | HTML | Filtered through Weekly Highlights | Stable |
 | NME | HTML | Targeted by individual `/reviews/track` pages | Stable |
-| SPIN | HTML | Parses the `/new-music/` directory | Stable |
+| SPIN | RSS | Parses the `/new-music/` feed, artist from category tags | Stable |
 | Rolling Stone | HTML | Combines index pages along with track features | Stable |
 | Slant Magazine | HTML | `/music/` track review pages (includes JS verification) | Stable |
 | Resident Advisor | HTML | Queries `ra.co/reviews/singles` (requires Playwright fallback) | JS rendered |
@@ -198,7 +198,7 @@ music-collector/
 │           ├── lineofbestfit.py    # The Line of Best Fit (HTML)
 │           ├── consequence.py      # Consequence of Sound (HTML)
 │           ├── nme.py              # NME (HTML)
-│           ├── spin.py             # SPIN (HTML)
+│           ├── spin.py             # SPIN (RSS)
 │           ├── rollingstone.py     # Rolling Stone (HTML)
 │           ├── slant.py            # Slant Magazine (HTML + JS detection)
 │           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
@@ -339,7 +339,7 @@ MIT License
 | The Line of Best Fit | HTML | `/tracks` 頁面，解析每日推薦 | 穩定 |
 | Consequence | HTML | WordPress 分類頁，週度精選 | 穩定 |
 | NME | HTML | `/reviews/track` 個別曲目評論頁 | 穩定 |
-| SPIN | HTML | `/new-music/` 分類頁面 | 穩定 |
+| SPIN | RSS | `/new-music/` feed，藝人取自 category tag | 穩定 |
 | Rolling Stone | HTML | 音樂新聞與特輯索引頁 + 文章頁 | 穩定 |
 | Slant Magazine | HTML | `/music/` 樂評頁（含 JS 偵測） | 穩定 |
 | Resident Advisor | HTML | `ra.co/reviews/singles`（含 Playwright fallback） | JS 渲染 |
@@ -499,7 +499,7 @@ music-collector/
 │           ├── lineofbestfit.py    # The Line of Best Fit (HTML)
 │           ├── consequence.py      # Consequence of Sound (HTML)
 │           ├── nme.py              # NME (HTML)
-│           ├── spin.py             # SPIN (HTML)
+│           ├── spin.py             # SPIN (RSS)
 │           ├── rollingstone.py     # Rolling Stone (HTML)
 │           ├── slant.py            # Slant Magazine (HTML + JS 偵測)
 │           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)

@@ -68,14 +68,14 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 | Pitchfork | HTML | `div[class*='SummaryItemWrapper']` 容器，`h3` 取曲名，`div sub-hed` 取藝人 |
 | Stereogum | RSS | feedparser + 分類過濾 + 多格式標題解析 |
 | NME | HTML | `/reviews/track` 頁面，敘述性標題解析（所有格 + 動詞短語分離） |
-| SPIN | HTML | `/new-music/` 頁面，typographic 引號匹配 + 動詞短語分離 |
+| SPIN | RSS | `/new-music/feed/`，引號取曲名 + category tag 取藝人（tag 可在標題任一處） |
 | Consequence | HTML | 引號提取曲名 + 文章 URL slug 定位藝人名（動詞清單為備選） |
 | Line of Best Fit | HTML | 所有格 `'s` 優先策略 + 擴展動詞清單 |
 | Rolling Stone | HTML | 二階段：索引頁多頁掃描（≤3 頁）→ 文章頁以段首錨定 regex 取「Artist, “Title”」 |
 | Slant | HTML | 三種標題格式（藝人在引號前／後／帶所有格）+ 動詞邊界 + JS/Cloudflare 偵測 |
 | Resident Advisor | HTML | Next.js 偵測 + Playwright fallback |
 | Gorilla vs. Bear | RSS | feedparser + mp3/video/on-blast 分類過濾 |
-| Bandcamp Daily | RSS | feedparser + Album of the Day 分類 + 逗號分隔解析 |
+| Bandcamp Daily | RSS | 只取 Album of the Day 分類 + 成對引號解析「Artist, “Album”」 |
 | The Quietus | RSS | feedparser + Reviews 分類過濾 |
 | DIY | RSS | News 分類 + category tag 取藝人 + 引號取曲名（專輯名跳過） |
 | Aquarium Drunkard | RSS | ` :: ` 分隔 + 專欄黑名單 + 藝人須對得上 tag + 括號過濾現場錄音 |

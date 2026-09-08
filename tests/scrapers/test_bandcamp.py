@@ -26,13 +26,24 @@ class TestParseBandcampTitle:
                 "MJ Lenderman, \u2018Manning Fireworks\u2019",
                 ("MJ Lenderman", "Manning Fireworks"),
             ),
-            # Dash 格式（備選）
+            # 專輯名裡的撇號不可提早收尾（曾被截成 "Can"）
             (
-                "Radiohead \u2013 OK Computer",
-                ("Radiohead", "OK Computer"),
+                "Various Artists, \u201cCan\u2019t Stop It! II: "
+                "Australian Post Punk 1979\u201384\u201d (2026 Deluxe Edition)",
+                (
+                    "Various Artists",
+                    "Can\u2019t Stop It! II: Australian Post Punk 1979\u201384",
+                ),
             ),
-            # 無法解析
+            # 團名含逗號時須完整保留
+            (
+                "Henry Threadgill, Vijay Iyer & Dafnis Prieto, \u201cFifteen\u201d",
+                ("Henry Threadgill, Vijay Iyer & Dafnis Prieto", "Fifteen"),
+            ),
+            # 無引號 → 不解析。沒有 dash 備選，散文標題不會被切成假曲目
             ("Essential Releases, Feb 6", None),
+            ("Radiohead \u2013 OK Computer", None),
+            ("Spit-Polished: A Guide to Shit & Shine", None),
             ("", None),
         ],
     )

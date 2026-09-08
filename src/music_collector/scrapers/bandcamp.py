@@ -1,11 +1,12 @@
 """Bandcamp Daily 擷取器（RSS）。
 
 來源：daily.bandcamp.com — Bandcamp 官方編輯推薦。
-擷取方式：解析 RSS feed，過濾「Album of the Day」分類。
-標題格式多變：
-  - 「Artist, "Album"」（Album of the Day）
-  - 「Artist, "Album Title"」
-  - 「Essential Releases, Feb 6」（合輯推薦，跳過）
+擷取方式：解析 RSS feed，只取分類正好是「Album of the Day」的項目。
+
+feed 裡三分之二是月度榜單（Best Metal…）、專欄（Lists、Features、Scene
+Report）與合輯（Essential Releases），標題是散文句子，硬解析只會生出
+「Learning by Doing — Making Music as Melaina Kol」這種假曲目。
+Album of the Day 則一律是「Artist, "Album"」，分類本身就是最準的過濾條件。
 """
 
 import logging
@@ -19,6 +20,15 @@ from ..config import MAX_TRACKS_PER_SOURCE
 logger = logging.getLogger(__name__)
 
 FEED_URL = "https://daily.bandcamp.com/feed"
+
+# 「Artist, "Album"」。引號成對匹配，否則專輯名裡的撇號會提早收尾
+# （Various Artists, "Can't Stop It! II…" 會被截成 "Can"）
+_TITLE_RE = re.compile(
+    r"^(?P<artist>.+?),\s*"
+    r"(?:\u201c(?P<curly>[^\u201d]+)\u201d"
+    r"|\u2018(?P<single>[^\u2019]+)\u2019"
+    r"|\"(?P<straight>[^\"]+)\")"
+)
 
 
 class BandcampDailyScraper(BaseScraper):
@@ -36,19 +46,7 @@ class BandcampDailyScraper(BaseScraper):
             title_text = entry.get("title", "")
             categories = [c.get("term", "").lower() for c in entry.get("tags", [])]
 
-            # 過濾「Album of the Day」與「Best of」等推薦類別
-            is_recommendation = any(
-                kw in cat
-                for cat in categories
-                for kw in ["album of the day", "best of", "features"]
-            )
-            if not is_recommendation:
-                continue
-
-            # 跳過合輯推薦（如「Essential Releases, Feb 6」）
-            if title_text.lower().startswith("essential releases"):
-                continue
-            if title_text.lower().startswith("the best "):
+            if "album of the day" not in categories:
                 continue
 
             parsed = self._parse_bandcamp_title(title_text)
@@ -61,26 +59,17 @@ class BandcampDailyScraper(BaseScraper):
 
     @staticmethod
     def _parse_bandcamp_title(text: str) -> tuple[str, str] | None:
-        """解析 Bandcamp Daily 標題，提取藝人與專輯名。
+        """解析「Artist, "Album"」標題，提取藝人與專輯名。
 
-        常見格式：
-          - 「Artist, "Album Title"」
-          - 「Artist, 'Album Title'」
+        artist 用非貪婪並錨定句首，讓含逗號的團名完整保留
+        （"Henry Threadgill, Vijay Iyer & Dafnis Prieto"）。
+        沒有備選格式：Album of the Day 一律是這個寫法，多加一條 dash 備選
+        只會把偶爾混入的散文標題切成假曲目。
         """
-        # 格式一：逗號分隔 + 引號包裹的專輯名
-        m = re.match(
-            r'^(.+?),\s*["\u201c\u2018\']+(.+?)["\u201d\u2019\']+',
-            text,
-        )
-        if m:
-            artist = m.group(1).strip()
-            title = m.group(2).strip()
-            if artist and title:
-                return artist, title
+        m = _TITLE_RE.match(text)
+        if not m:
+            return None
 
-        # 格式二：標準「Artist – Title」格式（備選）
-        result = BaseScraper.parse_artist_title(text)
-        if result:
-            return result
-
-        return None
+        artist = m.group("artist").strip()
+        title = (m.group("curly") or m.group("single") or m.group("straight")).strip()
+        return (artist, title) if artist and title else None
