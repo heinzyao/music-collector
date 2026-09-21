@@ -131,3 +131,44 @@ def test_backfill_all_time_collects_main_and_archives_only():
     sp.playlist_add_items.assert_called_once_with(
         "all", ["spotify:track:a", "spotify:track:b"]
     )
+
+
+def _search_results(*rounds: list[dict]) -> Mock:
+    """建立依序回傳各輪搜尋結果的 mock。"""
+    sp = Mock()
+    sp.search.side_effect = [{"tracks": {"items": r}} for r in rounds]
+    return sp
+
+
+def test_search_track_retries_without_band_possessive_prefix():
+    """Stereogum 寫成「樂團’s 團員」，Spotify 上的藝人是後半段那個人。"""
+    item = {
+        "name": "Radio Station",
+        "artists": [{"name": "Elena Tonra"}],
+        "uri": "spotify:track:abc",
+    }
+    sp = _search_results([], [], [item])
+
+    assert search_track(sp, "Daughter’s Elena Tonra", "Radio Station") == item["uri"]
+    assert sp.search.call_args.kwargs["q"] == "Elena Tonra Radio Station"
+
+
+def test_search_track_leaves_apostrophe_artist_names_alone():
+    """真名就帶撇號的藝人第一輪就命中，不該走到剝離所有格那步。"""
+    item = {
+        "name": "Unclouded",
+        "artists": [{"name": "Melody’s Echo Chamber"}],
+        "uri": "spotify:track:def",
+    }
+    sp = _search_results([item])
+
+    assert search_track(sp, "Melody’s Echo Chamber", "Unclouded") == item["uri"]
+    assert sp.search.call_count == 1
+
+
+def test_search_track_skips_possessive_retry_when_remainder_is_one_word():
+    """剝完只剩一個字（sachi’s mirror → mirror）太容易誤配，不重試。"""
+    sp = _search_results([], [])
+
+    assert search_track(sp, "sachi’s mirror", "Talking in a Different Way") is None
+    assert sp.search.call_count == 2

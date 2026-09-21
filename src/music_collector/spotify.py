@@ -83,13 +83,23 @@ def _verify_result(
     return artist_ok and title_ok
 
 
+# 「樂團’s 團員」的寫法（Daughter’s Elena Tonra、Guided By Voices’ Doug Gillard）——
+# Spotify 上的藝人是後半段那個人。要求剩下的部分至少兩個字：剝完只剩一個字
+# （sachi’s mirror → mirror）太容易配到同名的別人。
+_BAND_POSSESSIVE = re.compile(r"^.+[’\']s?\s+(?P<member>\S+\s+\S+.*)$")
+
+
 def search_track(sp: spotipy.Spotify, artist: str, title: str) -> str | None:
     """在 Spotify 搜尋曲目，回傳曲目 URI 或 None。
 
     搜尋策略：
     1. 精確搜尋：使用 track: 和 artist: 欄位限定
     2. 寬鬆搜尋：直接搜尋「藝人 曲名」
-    兩種方式皆需通過藝人 + 曲名雙重驗證才視為配對成功。
+    3. 剝掉樂團名的所有格前綴後重試
+    三種方式皆需通過藝人 + 曲名雙重驗證才視為配對成功。
+
+    第 3 步放在最後是刻意的：Melody’s Echo Chamber、L’Rain 這類真名帶撇號的
+    藝人會在前兩步就命中，永遠走不到剝離那一步。
     """
     search_artist = re.split(
         r"\s+(?:feat(?:uring)?|ft)\.?\s+", artist, maxsplit=1, flags=re.IGNORECASE,
@@ -108,6 +118,15 @@ def search_track(sp: spotipy.Spotify, artist: str, title: str) -> str | None:
     for item in results["tracks"]["items"]:
         if _verify_result(item, artist, title):
             return item["uri"]
+
+    # 第三步：剝掉樂團名的所有格前綴後重試
+    m = _BAND_POSSESSIVE.match(search_artist)
+    if m:
+        member = m.group("member")
+        results = sp.search(q=f"{member} {title}", type="track", limit=5)
+        for item in results["tracks"]["items"]:
+            if _verify_result(item, member, title):
+                return item["uri"]
 
     return None
 

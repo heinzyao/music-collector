@@ -189,7 +189,10 @@ launchctl start com.music-collector
 
 - `.env`、`.spotify_cache`、`data/` 不可推送至 Git
 - 每個擷取器必須獨立處理例外，不可影響其他來源
-- Spotify 搜尋先用精確查詢 `track: artist:`，失敗後再用寬鬆查詢，兩者皆需通過藝人 + 曲名雙重驗證
+- Spotify 搜尋三段式：精確查詢 `track: artist:` → 寬鬆查詢 → 剝掉樂團名所有格前綴後重試
+  （`Daughter’s Elena Tonra` → `Elena Tonra`），三者皆需通過藝人 + 曲名雙重驗證。
+  剝離放在最後是刻意的：`Melody’s Echo Chamber`、`L’Rain` 這類真名帶撇號的藝人會在前兩步命中，
+  永遠走不到剝離；且要求剩餘部分至少兩個字，否則 `sachi’s mirror` → `mirror` 很容易配到別人
 - 曲目去重以大小寫不敏感的 `(artist, title)` 比對 —— 但這只擋 DB 層，播放清單需另行以 URI 去重（見「播放清單去重」）
 - 備份/通知/All Time 鏡射各自 try/except，失敗不影響主流程
 - `--dry-run` 模式不觸發 Spotify 操作、備份與通知
