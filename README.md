@@ -101,6 +101,9 @@ PYTHONPATH=src uv run python auth.py
 # Show recently scraped items for the past N days
 ./run.sh --recent 7
 
+# Search collected tracks by keyword (matches artist or title)
+./run.sh --search radiohead
+
 # Display all backup quarters
 ./run.sh --backup
 

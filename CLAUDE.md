@@ -28,6 +28,9 @@ uv sync --extra test
 # 查看近期蒐集紀錄
 ./run.sh --recent 7
 
+# 以關鍵字查詢已蒐集的曲目（比對藝人與曲名）
+./run.sh --search radiohead
+
 # 回填「Critics' Picks — All Time」累積歌單（主歌單 + 所有季度歸檔，去重）
 ./run.sh --backfill-all-time
 

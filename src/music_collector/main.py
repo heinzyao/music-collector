@@ -4,6 +4,7 @@
     python -m music_collector              # 完整執行
     python -m music_collector --dry-run    # 僅擷取，不寫入 Spotify / 不備份 / 不通知
     python -m music_collector --recent 7   # 顯示最近 7 天蒐集的曲目
+    python -m music_collector --search radiohead  # 以關鍵字查詢已蒐集的曲目
     python -m music_collector --backup     # 列出所有備份
     python -m music_collector --backup Q1  # 顯示指定季度備份內容
     python -m music_collector --export Q1  # 匯出 Q1 為 CSV
@@ -24,7 +25,13 @@ from .export import (
 )
 from .stats import show_stats
 from .config import DB_PATH
-from .db import init_db, save_track, track_exists, get_recent_tracks
+from .db import (
+    get_recent_tracks,
+    init_db,
+    save_track,
+    search_tracks,
+    track_exists,
+)
 from .health import (
     get_health_report,
     get_unhealthy_sources,
@@ -281,9 +288,30 @@ def show_recent(days: int = 7) -> None:
         return
 
     print(f"\n最近 {days} 天蒐集的曲目（共 {len(tracks)} 首）：\n")
+    _print_tracks(tracks)
+
+
+def _print_tracks(tracks: list[dict]) -> None:
+    """輸出曲目清單，標註 Spotify 配對狀態。"""
     for t in tracks:
         status = "已加入 Spotify" if t["spotify_uri"] else "未找到"
         print(f"  [{t['source']}] {t['artist']} — {t['title']} ({status})")
+
+
+def show_search(keyword: str, limit: int = 50) -> None:
+    """以關鍵字查詢已蒐集的曲目（比對藝人與曲名）。"""
+    conn = init_db()
+    tracks = search_tracks(conn, keyword, limit=limit)
+    conn.close()
+
+    if not tracks:
+        print(f"找不到符合「{keyword}」的曲目。")
+        return
+
+    print(f"\n符合「{keyword}」的曲目（{len(tracks)} 首）：\n")
+    _print_tracks(tracks)
+    if len(tracks) == limit:
+        print(f"\n（僅顯示前 {limit} 筆，請用更精確的關鍵字縮小範圍）")
 
 
 def show_health() -> None:
@@ -316,6 +344,9 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="僅擷取，不寫入 Spotify")
     parser.add_argument(
         "--recent", type=int, metavar="DAYS", help="顯示最近 N 天蒐集的曲目"
+    )
+    parser.add_argument(
+        "--search", metavar="KEYWORD", help="以關鍵字查詢已蒐集的曲目（藝人或曲名）"
     )
     parser.add_argument(
         "--backup",
@@ -394,6 +425,8 @@ def main() -> None:
             list_backups()
     elif args.recent is not None:
         show_recent(days=args.recent)
+    elif args.search:
+        show_search(args.search)
     elif args.reset:
         reset()
     elif args.backfill_all_time:

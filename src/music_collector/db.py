@@ -75,3 +75,15 @@ def get_recent_tracks(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
         (cutoff,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def search_tracks(conn: sqlite3.Connection, keyword: str, limit: int = 50) -> list[dict]:
+    """以關鍵字模糊查詢藝人或曲名，依加入時間降序排列。"""
+    like = f"%{keyword.strip().lower()}%"
+    rows = conn.execute(
+        "SELECT artist, title, source, spotify_uri, added_at FROM tracks "
+        "WHERE LOWER(artist) LIKE ? OR LOWER(title) LIKE ? "
+        "ORDER BY added_at DESC LIMIT ?",
+        (like, like, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
