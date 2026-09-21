@@ -36,3 +36,29 @@ def test_send_error_notification_includes_reason_and_action(monkeypatch) -> None
     assert "Spotify 連線失敗" in sent[0]
     assert "原因：invalid_grant" in sent[0]
     assert "請重新授權。" in sent[0]
+
+
+def test_build_message_includes_playlist_link_and_preview() -> None:
+    """測試摘要列出本次加入的曲目與歌單連結。"""
+    found = [
+        Track(artist=f"Artist {i}", title=f"Song {i}", source="Pitchfork")
+        for i in range(12)
+    ]
+    missing = _track("NME")
+
+    message = _build_message(
+        found + [missing],
+        ["spotify:track:%d" % i for i in range(12)],
+        [missing],
+        None,
+        "https://open.spotify.com/playlist/abc123",
+        1523,
+    )
+
+    assert "  • Artist 0 — Song 0" in message
+    assert "  • Artist 9 — Song 9" in message
+    assert "Artist 10" not in message          # 超過預覽上限
+    assert "…等共 12 首" in message
+    assert "De La Rose" not in message          # 未配對的不算加入歌單
+    assert "（目前 1523 首）" in message
+    assert "https://open.spotify.com/playlist/abc123" in message

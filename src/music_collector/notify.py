@@ -18,6 +18,7 @@ from .config import (
     LINE_CHANNEL_ID,
     LINE_CHANNEL_SECRET,
     LINE_USER_ID,
+    PLAYLIST_NAME,
     SLACK_WEBHOOK_URL,
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID,
@@ -30,12 +31,17 @@ LINE_TOKEN_URL = "https://api.line.me/v2/oauth/accessToken"
 LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
+# 通知裡預覽幾首曲目，其餘以「…等共 N 首」帶過
+PREVIEW_LIMIT = 10
+
 
 def send_notification(
     tracks: list[Track],
     spotify_found: list[str],
     spotify_not_found: list[Track],
     unhealthy_sources: list[Any] | None = None,
+    playlist_url: str | None = None,
+    playlist_total: int | None = None,
 ) -> None:
     """發送通知摘要至所有已設定的通道。
 
@@ -44,9 +50,16 @@ def send_notification(
         spotify_found: 成功配對的 Spotify URI 清單。
         spotify_not_found: 在 Spotify 上未找到的曲目清單。
         unhealthy_sources: 不健康或有警告的來源清單。
+        playlist_url: 主歌單的 Spotify 連結。
+        playlist_total: 主歌單目前的曲目總數。
     """
     message = _build_message(
-        tracks, spotify_found, spotify_not_found, unhealthy_sources
+        tracks,
+        spotify_found,
+        spotify_not_found,
+        unhealthy_sources,
+        playlist_url,
+        playlist_total,
     )
 
     _send_line(message)
@@ -144,7 +157,6 @@ def _send_telegram(message: str) -> None:
         json={
             "chat_id": TELEGRAM_CHAT_ID,
             "text": message,
-            "parse_mode": "HTML",
         },
         timeout=15,
     )
@@ -184,6 +196,8 @@ def _build_message(
     spotify_found: list[str],
     spotify_not_found: list[Track],
     unhealthy_sources: list[Any] | None = None,
+    playlist_url: str | None = None,
+    playlist_total: int | None = None,
 ) -> str:
     """組合通知文字。"""
     total = len(tracks)
@@ -203,6 +217,13 @@ def _build_message(
         f"未找到：{not_found} 首\n"
     )
 
+    added = [t for t in tracks if t not in spotify_not_found]
+    if added:
+        msg += "\n🎧 本次加入：\n"
+        msg += "".join(f"  • {t.artist} — {t.title}\n" for t in added[:PREVIEW_LIMIT])
+        if len(added) > PREVIEW_LIMIT:
+            msg += f"  …等共 {len(added)} 首\n"
+
     if unhealthy_sources:
         msg += "\n⚠️ 來源異常：\n"
         for h in unhealthy_sources:
@@ -215,6 +236,11 @@ def _build_message(
                 msg += f"  🟡 {h.source}：連續 {h.consecutive_empty_days} 天無曲目（可能結構改變）\n"
 
     msg += f"\n各來源貢獻：\n{source_lines}"
+
+    if playlist_url:
+        total = f"（目前 {playlist_total} 首）" if playlist_total is not None else ""
+        msg += f"\n\n🔗 {PLAYLIST_NAME}{total}\n{playlist_url}"
+
     return msg
 
 

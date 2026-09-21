@@ -151,6 +151,8 @@ def run(dry_run: bool = False) -> None:
     # Spotify 更新（僅有新曲目時執行）
     spotify_uris: list[str] = []
     not_found: list[Track] = []
+    playlist_url: str | None = None
+    playlist_total: int | None = None
 
     if new_tracks:
         # 連接 Spotify 並取得或建立播放清單。
@@ -158,6 +160,7 @@ def run(dry_run: bool = False) -> None:
         try:
             sp = get_spotify_client()
             playlist_id = get_or_create_playlist(sp)
+            playlist_url = f"https://open.spotify.com/playlist/{playlist_id}"
         except Exception as e:
             logger.error(f"Spotify 認證或連線失敗：{e}")
             try:
@@ -244,9 +247,23 @@ def run(dry_run: bool = False) -> None:
         except Exception as e:
             logger.warning(f"來源健康通知失敗：{e}")
 
+    # 歌單曲目總數（放在季度歸檔之後才是通知當下的真實數字）
+    if playlist_url:
+        try:
+            playlist_total = sp.playlist(playlist_id, fields="tracks(total)")["tracks"]["total"]
+        except Exception as e:
+            logger.warning(f"取得歌單曲目數失敗：{e}")
+
     # 通知（LINE / Telegram / Slack）
     try:
-        send_notification(new_tracks, spotify_uris, not_found, unhealthy_sources)
+        send_notification(
+            new_tracks,
+            spotify_uris,
+            not_found,
+            unhealthy_sources,
+            playlist_url,
+            playlist_total,
+        )
     except Exception as e:
         logger.warning(f"通知失敗：{e}")
 
