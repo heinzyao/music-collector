@@ -298,7 +298,7 @@ Add your scraper directly inside the `scrapers/__init__.py` under the `ALL_SCRAP
 #### Multi-Agent Synergy
 
 - **CLAUDE.md** — Preconfigured Claude system behavioral file mapping prompts appropriately
-- **AGENTS.md** — Interaction schema logic documenting workflows directly implemented within the Antigravity scope
+- **AGENTS.md** — Shared data model and scraper interface, common to any agent working on the repo
 - Code segments run autonomously per scraper object; breaking errors inherently bounce back independently without terminating system instances.
 - SQLite remains as the fundamental local context registry tracking global dependencies.
 
@@ -599,7 +599,7 @@ class NewSourceScraper(BaseScraper):
 #### Agent 協作
 
 - **CLAUDE.md** — Claude Code 專案指引
-- **AGENTS.md** — 多 Agent 協作規範（OpenCode、Antigravity Agent）
+- **AGENTS.md** — 跨 agent 共用的資料模型與擷取器介面
 - 每個擷取器獨立模組，失敗不影響其他來源
 - SQLite 資料庫提供共享狀態
 

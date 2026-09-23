@@ -62,7 +62,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
 - `src/music_collector/main.py` — 主流程與 CLI
-- `tests/` — 102 項測試（pytest + respx mock）
+- `tests/` — pytest + respx mock
 
 ### 擷取器技術細節
 
