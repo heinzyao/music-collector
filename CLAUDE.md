@@ -37,6 +37,31 @@ uv sync --extra test
 # 輸出主歌單與 All Time 歌單的 Spotify 連結與曲目數
 ./run.sh --export-spotify-url
 
+# 各擷取器來源的健康狀態報告
+./run.sh --health
+
+# 資料分析：不帶參數為總覽，overlap 看跨來源重疊，sources 看來源比較
+./run.sh --stats
+./run.sh --stats overlap
+
+# 季度備份：不帶參數列出所有備份，帶季度看詳情
+./run.sh --backup
+./run.sh --backup 2026Q1
+
+# 匯出季度備份（--format csv|txt，--all 含未在 Spotify 找到的曲目）
+./run.sh --export 2026Q1 --format csv --all
+
+# 清理快取、舊日誌、匯出檔，並對 DB 執行 VACUUM
+./run.sh --clean
+
+# 啟動 Streamlit Web 介面
+./run.sh --web
+
+# ⚠️ 破壞性：清除 Spotify 歌單與資料庫後重新蒐集。
+# All Time 歌單累積 1500+ 首且「只進不出」，砍掉要靠 --backfill-all-time
+# 從各季歸檔回填，而歸檔本身也會被清掉 —— 實質上救不回來。不要主動建議執行。
+./run.sh --reset
+
 # 執行測試（全部）
 PYTHONPATH=src uv run pytest tests/ -q
 
@@ -61,6 +86,8 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 - `src/music_collector/notify.py` — LINE + Telegram + Slack 多通道通知
 - `src/music_collector/stats.py` — 資料分析（總覽、重疊、來源比較）
 - `src/music_collector/web.py` — Streamlit Web 介面
+- `src/music_collector/clean.py` — 快取／日誌／匯出檔清理、DB VACUUM、Playwright 舊版瀏覽器清除
+- `src/music_collector/config.py` — 環境變數與常數（含 `ALL_TIME_PLAYLIST_NAME`）
 - `src/music_collector/main.py` — 主流程與 CLI
 - `tests/` — pytest + respx mock
 
