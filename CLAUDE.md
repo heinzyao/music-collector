@@ -226,5 +226,5 @@ launchctl start com.music-collector
 - 曲目去重以大小寫不敏感的 `(artist, title)` 比對 —— 但這只擋 DB 層，播放清單需另行以 URI 去重（見「播放清單去重」）
 - 備份/通知/All Time 鏡射各自 try/except，失敗不影響主流程
 - `--dry-run` 模式不觸發 Spotify 操作、備份與通知
-- Spotify 認證失敗會被攔截並發送 `send_error_notification()`，不再靜默炸掉整個排程；
+- Spotify 認證失敗會被攔截並發送 `send_error_notification()`，排程本身不中斷；
   修復方式為 `rm .spotify_cache` 後執行 `./run.sh` 重新完成瀏覽器授權
