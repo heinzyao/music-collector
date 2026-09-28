@@ -294,7 +294,7 @@ def show_recent(days: int = 7) -> None:
 def _print_tracks(tracks: list[dict]) -> None:
     """輸出曲目清單，標註 Spotify 配對狀態。"""
     for t in tracks:
-        status = "已加入 Spotify" if t["spotify_uri"] else "未找到"
+        status = "已加入 Spotify" if t["spotify_uri"] else "Spotify 未配對"
         print(f"  [{t['source']}] {t['artist']} — {t['title']} ({status})")
 
 
