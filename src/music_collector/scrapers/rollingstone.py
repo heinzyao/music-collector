@@ -37,7 +37,8 @@ _RECOMMEND_KEYWORDS = [
     "song of the week",
     "track of the week",
     "need to hear",
-    "need to know",
+    # 不收單獨的 "need to know"：會命中「Everything You Need to Know About…」
+    # 這類解析文；正牌的「Song(s) You Need to Know」已由上面兩條涵蓋
     "songs this week",
     "tracks this week",
     "songs right now",
@@ -71,8 +72,11 @@ _RECAP_KEYWORDS = [
 # artist 用非貪婪 .+? 並錨定段首，讓含逗號的藝人名（"Beyoncé, Selena"、
 # "AZ Chike feat. Tyler, the Creator"）能完整保留：非貪婪會逐步擴張，
 # 直到逗號後面真的接引號才成立。
+# 長度上限 100 擋掉散文段落（正牌多人合作名實測可達 59 字，別再壓低）：
+# 沒有上限時，段落中途任何「, “…”」都會讓前面
+# 整段文字被吞成藝人名（曾抓到 600 字的樂評當藝人、一句歌詞當曲名）。
 _ENTRY_RE = re.compile(
-    r"^(?P<artist>.+?),\s*"
+    r"^(?P<artist>.{1,100}?),\s*"
     r"(?:\u201c(?P<curly>[^\u201d]+)\u201d|\"(?P<straight>[^\"]+)\")"
 )
 

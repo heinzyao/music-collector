@@ -78,3 +78,34 @@ class TestParseRecommendationHeadline:
             "Beyonc\u00e9 Premieres New Song \u2018Cozy\u2019"
         )
         assert result == ("Beyonc\u00e9", "Cozy")
+
+
+class TestArticleFiltering:
+    """推薦文判定與段落解析的誤判防護。"""
+
+    def test_skips_explainer_article(self, monkeypatch):
+        """「Everything You Need to Know About…」是解析文，不可進入文章解析。"""
+        from bs4 import BeautifulSoup
+
+        scraper = RollingStoneScraper()
+        called = []
+        monkeypatch.setattr(scraper, "_parse_article", lambda url: called.append(url) or [])
+        soup = BeautifulSoup(
+            '<h3><a href="/music/music-features/taylor-swifts-encore-breakdown-1/">'
+            "Everything You Need to Know About ‘The Encore’ Songs</a></h3>",
+            "lxml",
+        )
+        scraper._scan_index(soup)
+        assert called == []
+
+    def test_entry_regex_rejects_prose_paragraph(self):
+        """段落中途出現引號時，前面整段散文不可被吞成藝人名。"""
+        from music_collector.scrapers.rollingstone import _ENTRY_RE
+
+        text = (
+            "Before her final bow, Swift can’t help but open the old wounds "
+            "from 2017’s “Getaway Car,” long-rumored to be about "
+            "Tom Hiddleston. Over swelling synths she admits that, "
+            "“Years later, I still wonder how to tell you sorry.”"
+        )
+        assert _ENTRY_RE.match(text) is None
