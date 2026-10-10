@@ -25,14 +25,11 @@ def test_build_message_summarises_sources() -> None:
 def test_send_error_notification_includes_reason_and_action(monkeypatch) -> None:
     """測試失敗警示同時送出原因與修復動作。"""
     sent: list[str] = []
-    for channel in ("_send_line", "_send_telegram", "_send_slack"):
-        monkeypatch.setattr(
-            "music_collector.notify." + channel, lambda msg: sent.append(msg)
-        )
+    monkeypatch.setattr("music_collector.notify._send_line", sent.append)
 
     send_error_notification("Spotify 連線失敗", "invalid_grant", "請重新授權。")
 
-    assert len(sent) == 3
+    assert len(sent) == 1
     assert "Spotify 連線失敗" in sent[0]
     assert "原因：invalid_grant" in sent[0]
     assert "請重新授權。" in sent[0]

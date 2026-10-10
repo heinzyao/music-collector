@@ -59,13 +59,6 @@ ENABLE_PLAYWRIGHT = os.environ.get("ENABLE_PLAYWRIGHT", "false").lower() == "tru
 SOURCE_FAILURE_THRESHOLD = int(os.environ.get("SOURCE_FAILURE_THRESHOLD", "3"))
 SOURCE_EMPTY_DAYS_THRESHOLD = int(os.environ.get("SOURCE_EMPTY_DAYS_THRESHOLD", "5"))
 
-# ── Telegram 通知（選用）──
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-# ── Slack 通知（選用）──
-SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL", "")
-
 
 def get_quarter(month: int) -> int:
     """回傳季度編號（1–4）。"""

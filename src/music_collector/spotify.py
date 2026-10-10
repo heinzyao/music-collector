@@ -299,37 +299,7 @@ def backfill_all_time(sp: spotipy.Spotify) -> int:
     return mirror_to_all_time(sp, uris)
 
 
-# ── 播放清單合併與季度歸檔 ──
-
-
-def migrate_old_playlist(
-    sp: spotipy.Spotify,
-    new_playlist_id: str,
-    old_name: str = "Daily Music Picks",
-) -> None:
-    """將舊播放清單的曲目合併至新清單，然後移除舊清單。"""
-    old_id = _find_playlist(sp, old_name)
-    if not old_id:
-        return
-
-    logger.info(f"找到舊播放清單 '{old_name}'，開始合併...")
-
-    old_tracks = _get_all_playlist_tracks(sp, old_id)
-    if not old_tracks:
-        sp.current_user_unfollow_playlist(old_id)
-        logger.info("舊播放清單為空，已移除")
-        return
-
-    # 取得新清單現有曲目以避免重複
-    new_tracks = _get_all_playlist_tracks(sp, new_playlist_id)
-    existing_uris = {t["uri"] for t in new_tracks}
-
-    new_uris = [t["uri"] for t in old_tracks if t["uri"] not in existing_uris]
-    for i in range(0, len(new_uris), 100):
-        sp.playlist_add_items(new_playlist_id, new_uris[i : i + 100])
-
-    sp.current_user_unfollow_playlist(old_id)
-    logger.info(f"已合併 {len(new_uris)} 首曲目至新清單，舊播放清單已移除")
+# ── 季度歸檔 ──
 
 
 def archive_previous_quarters(sp: spotipy.Spotify, playlist_id: str) -> None:

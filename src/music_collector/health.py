@@ -29,25 +29,6 @@ class SourceHealth:
     last_error: str | None
 
 
-def init_health_table(conn: sqlite3.Connection) -> None:
-    """建立 source_checks 資料表（若不存在）。"""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS source_checks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source TEXT NOT NULL,
-            status TEXT NOT NULL,
-            track_count INTEGER DEFAULT 0,
-            error_message TEXT,
-            checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_source_checks_source_at
-        ON source_checks(source, checked_at DESC)
-    """)
-    conn.commit()
-
-
 def record_scrape_result(
     conn: sqlite3.Connection,
     source: str,
@@ -151,23 +132,16 @@ def get_source_health(conn: sqlite3.Connection, source: str) -> SourceHealth:
     )
 
 
-def get_all_source_health(
-    conn: sqlite3.Connection, sources: list[str]
-) -> list[SourceHealth]:
-    """取得所有來源的健康狀態。"""
-    return [get_source_health(conn, s) for s in sources]
-
-
 def get_unhealthy_sources(
     conn: sqlite3.Connection, sources: list[str]
 ) -> list[SourceHealth]:
     """取得所有不健康或有警告的來源。"""
-    return [h for h in get_all_source_health(conn, sources) if h.status != "healthy"]
+    return [h for h in (get_source_health(conn, s) for s in sources) if h.status != "healthy"]
 
 
 def get_health_report(conn: sqlite3.Connection, sources: list[str]) -> str:
     """產生文字格式的健康報告。"""
-    health_list = get_all_source_health(conn, sources)
+    health_list = [get_source_health(conn, s) for s in sources]
 
     lines = ["📊 來源健康狀態報告", ""]
 

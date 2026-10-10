@@ -21,13 +21,12 @@ The following workflow is executed automatically every week:
 - **Spotify Search Validation**: Dual verification combining artist name and track title to ensure that the added song corresponds with the original source.
 - **Quarterly Archiving**: Automatically moves expired tracks out of the main playlist into an archived playlist (`Critics' Picks — YYYY QN`) per quarter.
 - **All Time Cumulative Playlist**: Every matched track is also mirrored into `Critics' Picks — All Time`, an append-only playlist that is never archived — the single place to see everything ever collected, since the main playlist rolls over each quarter.
-- **Multi-channel Notifications**: Sends execution summaries via LINE, Telegram, and Slack — including an alert when Spotify authorization expires, instead of failing the schedule silently.
+- **LINE Notifications**: Sends execution summaries via LINE — including an alert when Spotify authorization expires, instead of failing the schedule silently.
 - **Local Backup**: Retains quarterly backup copies of all track metadata under a `data/backups/YYYY/QN.json` structure.
-- **Export**: Quarterly backups to CSV/TXT, plus Spotify playlist URLs and track counts.
+- **Export**: Quarterly backups to CSV, plus Spotify playlist URLs and track counts.
 - **Data Analysis**: Features source-contribution statistics, Spotify match rates, and cross-reference overlap analysis.
-- **Web Interface**: A Streamlit environment to view historical logs, data distribution, and backup archives.
 - **Playwright Support**: Provides seamless fallback to browser-rendering for Javascript-heavy scraping targets.
-- **Source Health Monitoring**: Automatically detects sources that are failing consecutively or returning zero tracks for multiple days, and sends alerts via LINE/Telegram/Slack.
+- **Source Health Monitoring**: Automatically detects sources that are failing consecutively or returning zero tracks for multiple days, and flags them in the LINE summary.
 
 #### Supported Music Media Outlets
 
@@ -76,8 +75,6 @@ cp .env.example .env
 
 3. **Notifications** (Optional):
    - **LINE**: In the [LINE Developers Console](https://developers.line.biz/console/), register `LINE_CHANNEL_ID`, `LINE_CHANNEL_SECRET`, `LINE_USER_ID`.
-   - **Telegram**: Initialize via [@BotFather](https://t.me/BotFather), enter `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
-   - **Slack**: Setup an Incoming Webhook, copy the path into `SLACK_WEBHOOK_URL`.
 
 4. **Source Health Thresholds** (Optional):
    - `SOURCE_FAILURE_THRESHOLD`: Consecutive failures before marking a source as unhealthy (default: 3).
@@ -112,7 +109,6 @@ PYTHONPATH=src uv run python auth.py
 
 # Multi-platform exports
 ./run.sh --export Q1              # standard CSV format
-./run.sh --export Q1 --format txt # text format list
 ./run.sh --export Q1 --all        # include items ignored by Spotify
 ./run.sh --export-spotify-url     # output Spotify playlist URLs and track counts
 
@@ -126,9 +122,6 @@ PYTHONPATH=src uv run python auth.py
 
 # Source Health Report
 ./run.sh --health             # Show health status of all scrapers
-
-# Web App
-./run.sh --web
 
 # Erase the timeline and the database to restart syncing
 ./run.sh --reset
@@ -172,7 +165,6 @@ music-collector/
 │   # ─── Shell scripts ───
 ├── run.sh                          # CLI manual execution macro
 ├── run-scheduled.sh                # Daily schedule wrapper (crawl → Spotify → notify)
-├── clean.sh                        # Disk cleanup utility
 │
 │   # ─── macOS launchd template ───
 ├── com.music-collector.plist.example
@@ -188,11 +180,9 @@ music-collector/
 │       ├── spotify.py              # Spotify API integration (spotipy)
 │       ├── db.py                   # SQLite deduplication & persistence
 │       ├── backup.py               # Quarterly JSON backup
-│       ├── export.py               # CSV / TXT / Spotify URL export
-│       ├── notify.py               # LINE + Telegram + Slack notifications
+│       ├── export.py               # CSV / Spotify URL export
+│       ├── notify.py               # LINE notifications
 │       ├── stats.py                # Source contribution & overlap analytics
-│       ├── web.py                  # Streamlit web interface
-│       ├── clean.py                # Cache / log / export cleanup
 │       └── scrapers/
 │           ├── __init__.py         # Scraper registry (13 modules)
 │           ├── base.py             # BaseScraper + Track model + Playwright support
@@ -271,8 +261,7 @@ Four approaches were tried and all removed: TuneMyMusic Selenium automation, the
 | Rendering Engine | Playwright (Available On-Demand) | Executes Chrome instances implicitly via headless React interception |
 | Audio API Layer | Spotify (via spotipy) | Streamlines Bearer logic inside automation intervals |
 | DB Layering | SQLite | High capability logic with 0 dependencies required to execute |
-| Signaling Layer | httpx (API endpoint logic) | Bridges LINE / Telegram without additional SDK bloatware required |
-| Interface Layer | Streamlit (On-Demand) | Connects intuitively directly to sqlite for fast GUI interactions |
+| Signaling Layer | httpx (API endpoint logic) | Calls the LINE API directly without an extra SDK |
 | Remote CI Pipeline | GitHub Actions | Configured automatically via ruff and pytest compliance standards Python 3.14+ |
 | Sandboxing Model | Docker | Extends a python:3.14-slim instance + uv preinstalled environment |
 
@@ -325,13 +314,12 @@ MIT License
 - **Spotify 搜尋驗證**：藝人名稱 + 曲目名稱雙重比對，確保加入的歌曲與來源一致
 - **季度歸檔**：每季自動將過季曲目從主播放清單移至 `Critics' Picks — YYYY QN` 歸檔清單
 - **All Time 累積歌單**：所有配對成功的曲目同時鏡射至只進不出、永不歸檔的 `Critics' Picks — All Time`。主歌單每季輪替、歷史散落在各季歸檔中，這份是唯一能一眼看完所有蒐集結果的歌單
-- **多通道通知**：LINE + Telegram + Slack 推送執行摘要；Spotify 授權失效時也會發送警示，不再靜默失敗
+- **LINE 通知**：推送執行摘要；Spotify 授權失效時也會發送警示，不再靜默失敗
 - **本地備份**：以 `data/backups/YYYY/QN.json` 季度結構備份所有曲目紀錄
-- **匯出**：季度備份匯出為 CSV／TXT，並可輸出 Spotify 歌單連結與曲目數
+- **匯出**：季度備份匯出為 CSV，並可輸出 Spotify 歌單連結與曲目數
 - **資料分析**：來源貢獻、Spotify 配對率、跨來源重疊分析
-- **Web 介面**：Streamlit 瀏覽蒐集紀錄、來源統計、季度備份管理
 - **Playwright 支援**：JS 重度渲染網站自動 fallback 至瀏覽器渲染
-- **來源健康監控**：自動偵測連續失敗或長期無曲目的來源，透過 LINE/Telegram/Slack 發送警示
+- **來源健康監控**：自動偵測連續失敗或長期無曲目的來源，並在 LINE 摘要中標示
 
 #### 支援的音樂媒體來源
 
@@ -380,8 +368,6 @@ cp .env.example .env
 
 3. **通知**（選用）：
    - **LINE**：前往 [LINE Developers Console](https://developers.line.biz/console/)，填入 `LINE_CHANNEL_ID`、`LINE_CHANNEL_SECRET`、`LINE_USER_ID`
-   - **Telegram**：建立 Bot（[@BotFather](https://t.me/BotFather)），填入 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`
-   - **Slack**：建立 Incoming Webhook，填入 `SLACK_WEBHOOK_URL`
 
 4. **來源健康檢查閾值**（選用）：
    - `SOURCE_FAILURE_THRESHOLD`：連續失敗幾次標記為 unhealthy（預設：3）
@@ -413,7 +399,6 @@ PYTHONPATH=src uv run python auth.py
 
 # 匯出備份供多平台匯入
 ./run.sh --export Q1              # CSV 格式
-./run.sh --export Q1 --format txt # 純文字格式
 ./run.sh --export Q1 --all        # 包含 Spotify 未找到的曲目
 ./run.sh --export-spotify-url     # 輸出 Spotify 歌單連結與曲目數
 
@@ -427,9 +412,6 @@ PYTHONPATH=src uv run python auth.py
 
 # 來源健康狀態
 ./run.sh --health             # 顯示各擷取器健康狀態
-
-# Web 介面
-./run.sh --web
 
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset
@@ -473,7 +455,6 @@ music-collector/
 │   # ─── Shell 腳本 ───
 ├── run.sh                          # 手動執行腳本
 ├── run-scheduled.sh                # 每日排程腳本（擷取 → Spotify → 通知）
-├── clean.sh                        # 磁碟空間清理工具
 │
 │   # ─── macOS launchd 範本 ───
 ├── com.music-collector.plist.example
@@ -489,11 +470,9 @@ music-collector/
 │       ├── spotify.py              # Spotify API 整合
 │       ├── db.py                   # SQLite 曲目紀錄與去重
 │       ├── backup.py               # 季度 JSON 備份
-│       ├── export.py               # CSV / TXT / Spotify URL 匯出
-│       ├── notify.py               # LINE + Telegram + Slack 通知
+│       ├── export.py               # CSV / Spotify URL 匯出
+│       ├── notify.py               # LINE 通知
 │       ├── stats.py                # 資料分析模組
-│       ├── web.py                  # Streamlit Web 介面
-│       ├── clean.py                # 快取／日誌／匯出清理
 │       └── scrapers/
 │           ├── __init__.py         # 擷取器註冊表（14 個）
 │           ├── base.py             # 基礎擷取器（含 Playwright）
@@ -572,8 +551,7 @@ LaunchAgent 執行單一步驟：擷取 → Spotify → All Time 鏡射 → 備�
 | JS 渲染 | Playwright（選用） | headless Chrome，處理 React/Next.js |
 | 音樂串流 | Spotify (spotipy) | Token 可自動更新，適合排程 |
 | 資料儲存 | SQLite | 零依賴、去重可靠 |
-| 推播通知 | httpx 直接呼叫 API | LINE + Telegram + Slack，免額外套件 |
-| Web 介面 | Streamlit（選用） | 零配置、直接讀取 SQLite |
+| 推播通知 | httpx 直接呼叫 API | LINE，免額外套件 |
 | CI/CD | GitHub Actions | Python 3.14 + uv + ruff + pytest |
 | 容器化 | Docker | python:3.14-slim + uv |
 

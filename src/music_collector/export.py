@@ -1,9 +1,4 @@
-"""匯出模組：將季度備份匯出為 CSV 或純文字格式。
-
-支援格式：
-- CSV：適用於各家線上歌單轉換工具
-- TXT：純文字清單，方便手動搜尋
-"""
+"""匯出模組：將季度備份匯出為 CSV（適用於各家線上歌單轉換工具）。"""
 
 import csv
 import json
@@ -102,75 +97,6 @@ def export_csv(
     print(f"   {export_path}")
 
     return export_path
-
-
-def export_txt(query: str, spotify_only: bool = True) -> Path | None:
-    """匯出備份為純文字格式。
-
-    Args:
-        query: 季度查詢字串（如 'Q1'、'2026Q1'）
-        spotify_only: 若為 True，僅匯出在 Spotify 找到的曲目
-
-    Returns:
-        匯出檔案路徑，或 None（若失敗）
-    """
-    backup_path = _find_backup(query)
-    if not backup_path:
-        print(f"找不到備份：{query}")
-        _show_available_backups()
-        return None
-
-    data = _load_backup(backup_path)
-    if not data:
-        return None
-
-    # 篩選曲目
-    if spotify_only:
-        data = [t for t in data if t.get("spotify_uri")]
-
-    if not data:
-        print("無可匯出的曲目（全部未在 Spotify 找到）")
-        return None
-
-    # 建立匯出目錄與檔案
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    label = f"{backup_path.parent.name}_{backup_path.stem}"
-    export_path = EXPORT_DIR / f"{label}_{timestamp}.txt"
-
-    # 寫入純文字
-    lines = [f"{t['artist']} - {t['title']}" for t in data]
-    export_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    print(f"\n✅ 已匯出 {len(data)} 首曲目至：")
-    print(f"   {export_path}")
-
-    return export_path
-
-
-def export_playlist(
-    query: str,
-    fmt: str = "csv",
-    include_all: bool = False,
-    playlist_name: str | None = None,
-) -> Path | None:
-    """匯出備份為指定格式。
-
-    Args:
-        query: 季度查詢字串
-        fmt: 格式（'csv' 或 'txt'）
-        include_all: 若為 True，包含未在 Spotify 找到的曲目
-        playlist_name: 播放清單名稱（作為匯出檔名）
-
-    Returns:
-        匯出檔案路徑
-    """
-    spotify_only = not include_all
-
-    if fmt.lower() == "txt":
-        return export_txt(query, spotify_only=spotify_only)
-    else:
-        return export_csv(query, spotify_only=spotify_only, playlist_name=playlist_name)
 
 
 def export_spotify_url() -> None:

@@ -156,14 +156,10 @@ class BaseScraper(ABC):
     @staticmethod
     def _deduplicate_tracks(tracks: list[Track]) -> list[Track]:
         """以 (artist, title) 大小寫不敏感去重。"""
-        seen: set[tuple[str, str]] = set()
-        unique: list[Track] = []
+        unique: dict[tuple[str, str], Track] = {}
         for t in tracks:
-            key = (t.artist.lower(), t.title.lower())
-            if key not in seen:
-                seen.add(key)
-                unique.append(t)
-        return unique
+            unique.setdefault((t.artist.lower(), t.title.lower()), t)
+        return list(unique.values())
 
     @staticmethod
     def clean_text(text: str) -> str:

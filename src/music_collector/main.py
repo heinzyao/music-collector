@@ -8,7 +8,6 @@
     python -m music_collector --backup     # 列出所有備份
     python -m music_collector --backup Q1  # 顯示指定季度備份內容
     python -m music_collector --export Q1  # 匯出 Q1 為 CSV
-    python -m music_collector --export Q1 --format txt  # 匯出為純文字
     python -m music_collector --backfill-all-time  # 回填 All Time 累積歌單
     python -m music_collector --reset      # 清除歌單與資料庫，重新蒐集
 """
@@ -16,13 +15,9 @@
 import argparse
 import asyncio
 import logging
-from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
-from .export import (
-    export_playlist,
-    export_spotify_url,
-)
+from .export import export_csv, export_spotify_url
 from .stats import show_stats
 from .config import DB_PATH
 from .db import (
@@ -42,7 +37,6 @@ from .notify import (
     send_error_notification,
     send_no_new_tracks_notification,
     send_notification,
-    send_source_health_notification,
 )
 from .scrapers import ALL_SCRAPERS
 from .scrapers.base import Track
@@ -53,7 +47,6 @@ from .spotify import (
     clear_playlist,
     get_or_create_playlist,
     get_spotify_client,
-    migrate_old_playlist,
     mirror_to_all_time,
     search_track,
 )
@@ -149,92 +142,76 @@ def run(dry_run: bool = False) -> None:
 
     # 乾跑模式：僅列出擷取結果，不操作 Spotify / 不備份 / 不通知
     if dry_run:
-        if new_tracks:
-            logger.info("乾跑模式 — 僅列出擷取結果：")
-            for t in new_tracks:
-                print(f"  [{t.source}] {t.artist} — {t.title}")
+        logger.info("乾跑模式 — 僅列出擷取結果：")
+        for t in new_tracks:
+            print(f"  [{t.source}] {t.artist} — {t.title}")
         return
 
-    # Spotify 更新（僅有新曲目時執行）
+    # 連接 Spotify 並取得或建立播放清單。
+    # 授權失效（refresh token 被撤銷）會讓整個排程靜默失敗，所以在此攔截並通知。
+    try:
+        sp = get_spotify_client()
+        playlist_id = get_or_create_playlist(sp)
+        playlist_url = f"https://open.spotify.com/playlist/{playlist_id}"
+    except Exception as e:
+        logger.error(f"Spotify 認證或連線失敗：{e}")
+        try:
+            send_error_notification(
+                "Spotify 連線失敗",
+                str(e),
+                "請刪除 .spotify_cache 後執行 ./run.sh 重新完成瀏覽器授權。",
+            )
+        except Exception as notify_error:
+            logger.warning(f"通知失敗：{notify_error}")
+        return
+
+    conn = init_db()
     spotify_uris: list[str] = []
     not_found: list[Track] = []
-    playlist_url: str | None = None
-    playlist_total: int | None = None
+    spotify_results: dict[tuple[str, str], str | None] = {}
 
-    if new_tracks:
-        # 連接 Spotify 並取得或建立播放清單。
-        # 授權失效（refresh token 被撤銷）會讓整個排程靜默失敗，所以在此攔截並通知。
+    # 逐首搜尋 Spotify 並儲存結果
+    for track in new_tracks:
         try:
-            sp = get_spotify_client()
-            playlist_id = get_or_create_playlist(sp)
-            playlist_url = f"https://open.spotify.com/playlist/{playlist_id}"
+            uri = search_track(sp, track.artist, track.title)
+            spotify_results[(track.artist, track.title)] = uri
+            save_track(conn, track.artist, track.title, track.source, uri)
+            if uri:
+                spotify_uris.append(uri)
+                logger.info(f"  找到：{track.artist} — {track.title}")
+            else:
+                not_found.append(track)
+                logger.warning(f"  Spotify 未找到：{track.artist} — {track.title}")
         except Exception as e:
-            logger.error(f"Spotify 認證或連線失敗：{e}")
-            try:
-                send_error_notification(
-                    "Spotify 連線失敗",
-                    str(e),
-                    "請刪除 .spotify_cache 後執行 ./run.sh 重新完成瀏覽器授權。",
-                )
-            except Exception as notify_error:
-                logger.warning(f"通知失敗：{notify_error}")
-            return
+            logger.warning(f"  搜尋失敗：{track.artist} — {track.title}: {e}")
 
-        # 一次性合併舊播放清單（找不到則自動跳過）
+    conn.close()
+
+    # 批次加入播放清單
+    if spotify_uris:
+        # 實際加入數由 add_tracks_to_playlist() 自行記錄（去重後可能少於送入數）
+        add_tracks_to_playlist(sp, playlist_id, spotify_uris)
+
+        # 同步鏡射至 All Time 累積歌單。
+        # 失敗不影響主流程：下次執行或 --backfill-all-time 都會補回。
         try:
-            migrate_old_playlist(sp, playlist_id)
+            mirror_to_all_time(sp, spotify_uris)
         except Exception as e:
-            logger.warning(f"舊播放清單合併失敗：{e}")
+            logger.warning(f"All Time 累積歌單鏡射失敗：{e}")
 
-        conn = init_db()
-        spotify_results: dict[tuple[str, str], str | None] = {}
+    if not_found:
+        logger.info(f"{len(not_found)} 首曲目在 Spotify 上未找到")
 
-        # 逐首搜尋 Spotify 並儲存結果
-        for track in new_tracks:
-            try:
-                uri = search_track(sp, track.artist, track.title)
-                if uri:
-                    spotify_uris.append(uri)
-                    spotify_results[(track.artist, track.title)] = uri
-                    save_track(conn, track.artist, track.title, track.source, uri)
-                    logger.info(f"  找到：{track.artist} — {track.title}")
-                else:
-                    not_found.append(track)
-                    spotify_results[(track.artist, track.title)] = None
-                    save_track(conn, track.artist, track.title, track.source, None)
-                    logger.warning(f"  Spotify 未找到：{track.artist} — {track.title}")
-            except Exception as e:
-                logger.warning(f"  搜尋失敗：{track.artist} — {track.title}: {e}")
-
-        conn.close()
-
-        # 批次加入播放清單
-        if spotify_uris:
-            # 實際加入數由 add_tracks_to_playlist() 自行記錄（去重後可能少於送入數）
-            add_tracks_to_playlist(sp, playlist_id, spotify_uris)
-
-            # 同步鏡射至 All Time 累積歌單。
-            # 失敗不影響主流程：下次執行或 --backfill-all-time 都會補回。
-            try:
-                mirror_to_all_time(sp, spotify_uris)
-            except Exception as e:
-                logger.warning(f"All Time 累積歌單鏡射失敗：{e}")
-
-        if not_found:
-            logger.info(f"{len(not_found)} 首曲目在 Spotify 上未找到")
-
-        # 備份至季度 JSON
-        try:
-            save_backup(new_tracks, spotify_results)
-        except Exception as e:
-            logger.warning(f"備份失敗：{e}")
+    # 備份至季度 JSON
+    try:
+        save_backup(new_tracks, spotify_results)
+    except Exception as e:
+        logger.warning(f"備份失敗：{e}")
 
     # 季度歸檔：將前季曲目從 Spotify 主歌單移至歸檔清單。
     # All Time 累積歌單不受影響，仍保有完整歷史。
     try:
-        sp_archive = get_spotify_client()
-        pid_archive = get_or_create_playlist(sp_archive)
-        archive_previous_quarters(sp_archive, pid_archive)
+        archive_previous_quarters(sp, playlist_id)
     except Exception as e:
         logger.warning(f"季度歸檔失敗：{e}")
 
@@ -248,20 +225,14 @@ def run(dry_run: bool = False) -> None:
     except Exception as e:
         logger.warning(f"來源健康檢查失敗：{e}")
 
-    if unhealthy_sources:
-        try:
-            send_source_health_notification(unhealthy_sources)
-        except Exception as e:
-            logger.warning(f"來源健康通知失敗：{e}")
-
     # 歌單曲目總數（放在季度歸檔之後才是通知當下的真實數字）
-    if playlist_url:
-        try:
-            playlist_total = sp.playlist(playlist_id, fields="tracks(total)")["tracks"]["total"]
-        except Exception as e:
-            logger.warning(f"取得歌單曲目數失敗：{e}")
+    playlist_total: int | None = None
+    try:
+        playlist_total = sp.playlist(playlist_id, fields="tracks(total)")["tracks"]["total"]
+    except Exception as e:
+        logger.warning(f"取得歌單曲目數失敗：{e}")
 
-    # 通知（LINE / Telegram / Slack）
+    # 通知（LINE）
     try:
         send_notification(
             new_tracks,
@@ -358,13 +329,7 @@ def main() -> None:
     parser.add_argument(
         "--export",
         metavar="QUARTER",
-        help="匯出季度備份為 CSV 或 TXT",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["csv", "txt"],
-        default="csv",
-        help="匯出格式：csv（預設）或 txt（純文字）",
+        help="匯出季度備份為 CSV",
     )
     parser.add_argument(
         "--all",
@@ -387,7 +352,6 @@ def main() -> None:
         metavar="SUBCOMMAND",
         help="資料分析：不帶參數顯示總覽，overlap 顯示重疊分析，sources 顯示來源比較",
     )
-    parser.add_argument("--web", action="store_true", help="啟動 Streamlit Web 介面")
     parser.add_argument(
         "--backfill-all-time",
         action="store_true",
@@ -399,25 +363,14 @@ def main() -> None:
         action="store_true",
         help="顯示各擷取器來源的健康狀態報告",
     )
-    parser.add_argument(
-        "--clean",
-        action="store_true",
-        help="清理快取、暫存、舊日誌、匯出檔案，優化資料庫與 Playwright 瀏覽器快取",
-    )
     args = parser.parse_args()
 
-    if args.web:
-        import subprocess
-        import sys
-
-        web_path = str(Path(__file__).parent / "web.py")
-        subprocess.run([sys.executable, "-m", "streamlit", "run", web_path])
-    elif args.stats is not None:
+    if args.stats is not None:
         show_stats(args.stats if args.stats else None)
     elif args.export_spotify_url:
         export_spotify_url()
     elif args.export:
-        export_playlist(args.export, fmt=args.format, include_all=args.include_all)
+        export_csv(args.export, spotify_only=not args.include_all)
     elif args.backup is not None:
         if args.backup:
             show_backup(args.backup)
@@ -433,8 +386,5 @@ def main() -> None:
         raise SystemExit(0 if backfill_all_time_playlist() else 1)
     elif args.health:
         show_health()
-    elif args.clean:
-        from .clean import clean_all
-        clean_all(dry_run=args.dry_run)
     else:
         run(dry_run=args.dry_run)
