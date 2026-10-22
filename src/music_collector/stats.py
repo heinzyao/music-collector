@@ -6,6 +6,7 @@
 import sqlite3
 from collections import Counter
 
+from .config import ALL_TIME_PLAYLIST_NAME, PLAYLIST_NAME
 from .db import init_db
 
 
@@ -134,12 +135,79 @@ def show_sources() -> None:
         )
 
 
+def own_playlist_track_ids(sp) -> set[str]:
+    """收集使用者自己擁有的歌單中所有曲目 ID（唯讀）。
+
+    排除本工具產生的歌單（名稱以 Critics' Picks 開頭、Fresh Tracks，
+    以及環境變數覆寫後的主歌單／All Time 名稱），否則採用率會被自己灌水。
+    """
+    me = sp.me()["id"]
+    ids: set[str] = set()
+    res = sp.current_user_playlists(limit=50)
+    while res:
+        for p in res["items"]:
+            if (
+                not p
+                or p["owner"]["id"] != me
+                or p["name"].startswith("Critics' Picks")
+                or p["name"] in ("Fresh Tracks", PLAYLIST_NAME, ALL_TIME_PLAYLIST_NAME)
+            ):
+                continue
+            r = sp.playlist_items(
+                p["id"], fields="items(track(id)),next", limit=100, additional_types=("track",)
+            )
+            while r:
+                ids.update(
+                    it["track"]["id"] for it in r["items"] if it.get("track") and it["track"].get("id")
+                )
+                r = sp.next(r) if r.get("next") else None
+        res = sp.next(res) if res.get("next") else None
+    return ids
+
+
+def compute_adoption(conn: sqlite3.Connection, own_ids: set[str]) -> list[tuple[str, int, int]]:
+    """回傳 [(來源, 配對到 Spotify 數, 被收進自己歌單數)]，依採用率、再依配對數降序。"""
+    total: Counter[str] = Counter()
+    kept: Counter[str] = Counter()
+    for r in conn.execute("SELECT source, spotify_uri FROM tracks WHERE spotify_uri IS NOT NULL"):
+        total[r["source"]] += 1
+        if r["spotify_uri"].split(":")[-1] in own_ids:
+            kept[r["source"]] += 1
+    rows = [(src, n, kept[src]) for src, n in total.items()]
+    return sorted(rows, key=lambda x: (-x[2] / x[1], -x[1]))
+
+
+def show_adoption() -> None:
+    """採用率：每個來源推薦的曲目有多少被收進使用者自己的歌單。只讀，不寫入 Spotify。"""
+    from .spotify import get_spotify_client
+
+    own_ids = own_playlist_track_ids(get_spotify_client())
+    conn = init_db()
+    rows = compute_adoption(conn, own_ids)
+    conn.close()
+
+    if not rows:
+        print("尚無配對到 Spotify 的曲目。")
+        return
+
+    print(f"\n💚 各來源採用率（自己的歌單共 {len(own_ids)} 首不重複曲目）\n")
+    print(f"  {'來源':<25} {'配對':>6} {'採用':>6} {'採用率':>8}")
+    print(f"  {'─' * 25} {'─' * 6} {'─' * 6} {'─' * 8}")
+    for src, n, k in rows:
+        print(f"  {src:<25} {n:>6} {k:>6} {k / n:>8.1%}")
+    n_sum, k_sum = sum(r[1] for r in rows), sum(r[2] for r in rows)
+    print(f"  {'合計':<25} {n_sum:>6} {k_sum:>6} {k_sum / n_sum:>8.1%}")
+    print("\n  註：已在自己歌單裡的舊歌也會計入，會略為高估。")
+
+
 def show_stats(subcommand: str | None = None) -> None:
     """CLI 進入點：依子命令顯示對應統計。"""
     if subcommand == "overlap":
         show_overlap()
     elif subcommand == "sources":
         show_sources()
+    elif subcommand == "adoption":
+        show_adoption()
     else:
         show_overview()
 

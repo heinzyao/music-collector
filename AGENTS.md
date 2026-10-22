@@ -41,6 +41,7 @@ uv sync --extra test
 # 資料分析：不帶參數為總覽，overlap 看跨來源重疊，sources 看來源比較
 ./run.sh --stats
 ./run.sh --stats overlap
+./run.sh --stats adoption   # 唯讀 Spotify：各來源被收進自己歌單的比例（不進每日流程）
 
 # 季度備份：不帶參數列出所有備份，帶季度看詳情
 ./run.sh --backup
@@ -75,7 +76,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
 - `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（14 個擷取器）
-- `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`
+- `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`；`stale` = 超過 `SOURCE_STALE_DAYS` 天沒有新曲目進 DB（tracks.source 只記首個收錄來源，被搶先收錄也會讓來源看起來停更）
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔、All Time 累積歌單）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
 - `src/music_collector/backup.py` — 季度 JSON 備份至 `data/backups/YYYY/QN.json`

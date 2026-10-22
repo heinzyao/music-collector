@@ -350,7 +350,7 @@ def main() -> None:
         nargs="?",
         const="",
         metavar="SUBCOMMAND",
-        help="資料分析：不帶參數顯示總覽，overlap 顯示重疊分析，sources 顯示來源比較",
+        help="資料分析：不帶參數顯示總覽，overlap 顯示重疊分析，sources 顯示來源比較，adoption 顯示自己歌單的採用率（唯讀 Spotify）",
     )
     parser.add_argument(
         "--backfill-all-time",

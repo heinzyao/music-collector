@@ -58,6 +58,8 @@ ENABLE_PLAYWRIGHT = os.environ.get("ENABLE_PLAYWRIGHT", "false").lower() == "tru
 # ── 來源健康檢查閾值 ──
 SOURCE_FAILURE_THRESHOLD = int(os.environ.get("SOURCE_FAILURE_THRESHOLD", "3"))
 SOURCE_EMPTY_DAYS_THRESHOLD = int(os.environ.get("SOURCE_EMPTY_DAYS_THRESHOLD", "5"))
+# 來源超過 N 天沒有新曲目進 DB 即標為 stale（抓得到東西但全是舊歌也算）
+SOURCE_STALE_DAYS = int(os.environ.get("SOURCE_STALE_DAYS", "30"))
 
 
 def get_quarter(month: int) -> int:

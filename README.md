@@ -79,6 +79,7 @@ cp .env.example .env
 4. **Source Health Thresholds** (Optional):
    - `SOURCE_FAILURE_THRESHOLD`: Consecutive failures before marking a source as unhealthy (default: 3).
    - `SOURCE_EMPTY_DAYS_THRESHOLD`: Consecutive days with zero tracks before warning (default: 5).
+   - `SOURCE_STALE_DAYS`: Days without a new track in the DB before a source is marked `stale` (default: 30). Catches sources that still scrape fine but only return old songs.
 
 5. Run the one-time Spotify OAuth flow (a browser window will open for login):
 
@@ -118,10 +119,11 @@ PYTHONPATH=src uv run python auth.py
 # Analysis Metrics
 ./run.sh --stats              # Overview
 ./run.sh --stats overlap      # Display duplicates across sites
-./run.sh --stats sources      # Source ranking
+./run.sh --stats sources      # Source ranking (incl. Spotify match rate)
+./run.sh --stats adoption     # Share of each source's tracks you saved to your own playlists (read-only, manual only)
 
 # Source Health Report
-./run.sh --health             # Show health status of all scrapers
+./run.sh --health             # Show health status of all scrapers, incl. last new track date (stale sources flagged)
 
 # Erase the timeline and the database to restart syncing
 ./run.sh --reset
@@ -372,6 +374,7 @@ cp .env.example .env
 4. **來源健康檢查閾值**（選用）：
    - `SOURCE_FAILURE_THRESHOLD`：連續失敗幾次標記為 unhealthy（預設：3）
    - `SOURCE_EMPTY_DAYS_THRESHOLD`：連續幾天無曲目發出警告（預設：5）
+   - `SOURCE_STALE_DAYS`：超過幾天沒有新曲目進 DB 即標為 `stale`（預設：30），用來抓「抓得到東西但全是舊歌」的來源
 
 4. 首次 Spotify 授權（開啟瀏覽器進行 OAuth 認證）：
 
@@ -408,10 +411,11 @@ PYTHONPATH=src uv run python auth.py
 # 資料分析
 ./run.sh --stats              # 總覽
 ./run.sh --stats overlap      # 跨來源重疊
-./run.sh --stats sources      # 來源比較
+./run.sh --stats sources      # 來源比較（含 Spotify 配對率）
+./run.sh --stats adoption     # 各來源曲目被收進自己歌單的採用率（唯讀，僅手動執行）
 
 # 來源健康狀態
-./run.sh --health             # 顯示各擷取器健康狀態
+./run.sh --health             # 顯示各擷取器健康狀態，含最後新曲目日期（標出 stale 來源）
 
 # 清除歌單與資料庫，重新蒐集
 ./run.sh --reset

@@ -12,6 +12,7 @@ from .config import (
     LINE_USER_ID,
     PLAYLIST_NAME,
 )
+from .health import stale_message
 from .scrapers.base import Track
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,8 @@ def _build_message(
                 if h.last_error:
                     msg += f"（{h.last_error}）"
                 msg += "\n"
+            elif h.status == "stale":
+                msg += f"  🟡 {h.source}：{stale_message(h)}\n"
             else:
                 msg += f"  🟡 {h.source}：連續 {h.consecutive_empty_days} 天無曲目（可能結構改變）\n"
 

@@ -59,3 +59,13 @@ def test_build_message_includes_playlist_link_and_preview() -> None:
     assert "De La Rose" not in message          # 未配對的不算加入歌單
     assert "（目前 1523 首）" in message
     assert "https://open.spotify.com/playlist/abc123" in message
+
+
+def test_build_message_lists_stale_sources() -> None:
+    """測試 stale 來源在通知中顯示天數與可能原因。"""
+    from music_collector.health import SourceHealth
+
+    stale = SourceHealth("NME", "stale", "2026-10-22", 11, 0, 0, None, "2026-08-23", 60)
+    message = _build_message([_track("SPIN")], [], [], [stale])
+
+    assert "🟡 NME：60 天沒有新曲目（可能停更" in message
