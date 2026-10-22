@@ -2,7 +2,7 @@
 
 ## 專案概述
 
-自動從 14 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
+自動從 15 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
 
 ## 開發指令
 
@@ -75,7 +75,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 ## 架構要點
 
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
-- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（14 個擷取器）
+- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（15 個擷取器）
 - `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`；`stale` = 超過 `SOURCE_STALE_DAYS` 天沒有新曲目進 DB（tracks.source 只記首個收錄來源，被搶先收錄也會讓來源看起來停更）
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔、All Time 累積歌單）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
@@ -139,6 +139,7 @@ CREATE TABLE tracks (
 | The Quietus | RSS | feedparser + Reviews 分類過濾 |
 | DIY | RSS | News 分類 + category tag 取藝人 + 引號取曲名（專輯名跳過） |
 | Aquarium Drunkard | RSS | ` :: ` 分隔 + 專欄黑名單 + 藝人須對得上 tag + 括號過濾現場錄音 |
+| SoulBounce | RSS | 跳過 Events／Reviews／Relax in Paradise（訃聞）；藝人取標題開頭吻合的 tag（大小寫、重音、撇號摺疊後比對）；引號取曲名，比照 DIY 雙引號規則跳過專輯 |
 
 ### 引號處理注意事項
 
@@ -147,6 +148,16 @@ CREATE TABLE tracks (
 - SPIN：引號內曲名需 `rstrip(".,;:!?")` 移除尾端標點
 - Slant：曲名需 `rstrip(",;:")` —— 美式排版把逗號放在引號**內**（`‘Hazel Eyes,’`）
 - Slant：跳過詞（film/tv/best of…）只能比對引號**外**的文字，否則 `‘Music, Fashion, Film’` 這類曲名會被誤殺
+
+## 來源選擇原則
+
+（使用者 2026-10-22 指示）
+
+- 以歐美樂評為主；不加華語或台灣來源。
+- 維持曲風多樣性，補現有來源缺的曲風，但不要完全貼著使用者的個人偏好選。
+- 獨立搖滾類來源（Stereogum、Pitchfork、The Line of Best Fit、DIY、Gorilla vs. Bear、The Quietus 等）是主體，須維持占每日新曲目約 50% 以上；新來源會壓低占比時，對它設每次執行的曲目上限。
+- 不因採用率低就淘汰獨立搖滾類來源。
+- 新來源先量測（三頁內配對率 ≥ 60%、目測誤配 ≤ 1 首）才正式加入；未達標的記在 `tasks/todo.md`。
 
 ## 新增擷取器
 

@@ -18,6 +18,7 @@ from .bandcamp import BandcampDailyScraper
 from .quietus import TheQuietusScraper
 from .diy import DIYScraper
 from .aquariumdrunkard import AquariumDrunkardScraper
+from .soulbounce import SoulBounceScraper
 
 ALL_SCRAPERS = [
     PitchforkScraper(),         # Pitchfork — HTML 擷取
@@ -34,4 +35,5 @@ ALL_SCRAPERS = [
     TheQuietusScraper(),        # The Quietus — RSS 擷取（英國獨立/實驗音樂）
     DIYScraper(),               # DIY — RSS 擷取（英國獨立樂新歌）
     AquariumDrunkardScraper(),  # Aquarium Drunkard — RSS 擷取（迷幻/民謠/爵士）
+    SoulBounceScraper(),        # SoulBounce — RSS 擷取（R&B/soul）
 ]

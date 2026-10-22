@@ -46,6 +46,7 @@ The following workflow is executed automatically every week:
 | The Quietus | RSS | Parses `thequietus.com/feed` via Reviews designation | Stable |
 | DIY | RSS | News category, artist from tags, single name from quotes | Stable |
 | Aquarium Drunkard | RSS | ` :: ` separator, column blacklist, artist must match a tag | Stable |
+| SoulBounce | RSS | R&B/soul; artist from tags (case/accent-folded), single name from quotes | Stable |
 
 ### Quick Start
 
@@ -199,7 +200,8 @@ music-collector/
 │           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
 │           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
 │           ├── bandcamp.py         # Bandcamp Daily (RSS)
-│           └── quietus.py          # The Quietus (RSS)
+│           ├── quietus.py          # The Quietus (RSS)
+│           └── soulbounce.py       # SoulBounce (RSS)
 ├── tests/
 │   ├── conftest.py                 # Global pytest fixtures
 │   ├── test_spotify.py             # Spotify search & All Time playlist tests
@@ -308,7 +310,7 @@ MIT License
 每天自動執行以下流程：
 
 ```text
-14 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
+15 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
 ```
 
 #### 核心功能
@@ -341,6 +343,7 @@ MIT License
 | The Quietus | RSS | `thequietus.com/feed` 過濾 Reviews 分類 | 穩定 |
 | DIY | RSS | News 分類，tag 取藝人、引號取曲名 | 穩定 |
 | Aquarium Drunkard | RSS | ` :: ` 分隔，專欄黑名單 + tag 驗證 | 穩定 |
+| SoulBounce | RSS | R&B／soul，tag 取藝人（大小寫與重音正規化）、引號取曲名 | 穩定 |
 
 ### 快速開始
 
@@ -478,7 +481,7 @@ music-collector/
 │       ├── notify.py               # LINE 通知
 │       ├── stats.py                # 資料分析模組
 │       └── scrapers/
-│           ├── __init__.py         # 擷取器註冊表（14 個）
+│           ├── __init__.py         # 擷取器註冊表（15 個）
 │           ├── base.py             # 基礎擷取器（含 Playwright）
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
@@ -497,7 +500,7 @@ music-collector/
 │   ├── test_spotify.py             # Spotify 搜尋與 All Time 歌單測試
 │   ├── test_notify.py              # 通知模組測試
 │   ├── fixtures/html/              # HTML fixture 檔案
-│   └── scrapers/                   # 擷取器測試（14 個）
+│   └── scrapers/                   # 擷取器測試（15 個）
 └── data/                           # 本地執行資料（git-ignored）
     ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
