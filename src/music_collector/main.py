@@ -69,13 +69,14 @@ def _fetch_from_scraper(scraper) -> tuple[str, list[Track], str | None]:
         return scraper.name, [], str(e)
 
 
-def collect_tracks() -> list[Track]:
+def collect_tracks(record_health: bool = True) -> list[Track]:
     """平行執行所有擷取器，回傳尚未紀錄的新曲目。
 
     使用 asyncio.to_thread 將各擷取器的同步 fetch_tracks() 發送至
-    執行緒池平行執行，避免 I/O 等待時間疊加。14 個來源原本依序約需
-    30-60 秒，平行化後約 5-10 秒。
-    同時記錄各來源健康狀態到 source_checks 資料表。
+    執行緒池平行執行，避免 I/O 等待時間疊加（依序執行約需 30-60 秒，
+    平行化後約 5-10 秒）。
+    record_health 為 True 時記錄各來源健康狀態到 source_checks 資料表；
+    乾跑模式傳 False，維持「僅擷取，不寫入」。
     """
 
     async def _collect_all() -> list[tuple[str, list[Track], str | None]]:
@@ -91,7 +92,8 @@ def collect_tracks() -> list[Track]:
     seen_in_run: set[tuple[str, str]] = set()
 
     for scraper_name, tracks, error in results:
-        record_scrape_result(conn, scraper_name, len(tracks), error)
+        if record_health:
+            record_scrape_result(conn, scraper_name, len(tracks), error)
         for track in tracks:
             key = (track.artist.strip().lower(), track.title.strip().lower())
             if key in seen_in_run:
@@ -128,7 +130,7 @@ def run(dry_run: bool = False) -> None:
     """主流程：擷取 → Spotify 搜尋 → All Time 鏡射 → 備份 → 季度歸檔 → 通知。"""
     logger.info("開始音樂蒐集...")
 
-    new_tracks = collect_tracks()
+    new_tracks = collect_tracks(record_health=not dry_run)
     logger.info(f"發現 {len(new_tracks)} 首新曲目")
 
     if not new_tracks:
