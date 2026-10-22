@@ -46,6 +46,7 @@ from .spotify import (
     backfill_all_time,
     clear_playlist,
     get_or_create_playlist,
+    get_playlist_total,
     get_spotify_client,
     mirror_to_all_time,
     search_track,
@@ -230,7 +231,7 @@ def run(dry_run: bool = False) -> None:
     # 歌單曲目總數（放在季度歸檔之後才是通知當下的真實數字）
     playlist_total: int | None = None
     try:
-        playlist_total = sp.playlist(playlist_id, fields="tracks(total)")["tracks"]["total"]
+        playlist_total = get_playlist_total(sp, playlist_id)
     except Exception as e:
         logger.warning(f"取得歌單曲目數失敗：{e}")
 

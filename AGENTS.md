@@ -202,6 +202,19 @@ CREATE TABLE tracks (
 > 註：`run()` 不要自行記錄「已加入 N 首」—— 去重後實際加入數可能少於送入數，
 > 由 `add_tracks_to_playlist()` 自行回報才不會謊報。
 
+## Spotify Developer app 與端點
+
+2026 年後新建的 Developer app 可以用，但被封掉部分端點（2026-10-23 兩個 app 實測）：
+
+- `/playlists/{id}/tracks` 403 —— spotipy 的 `playlist_items`、`playlist_add_items`、`playlist_remove_*`、
+  `playlist_replace_items` 都走這條，**不要用**。讀寫歌單項目一律用 `spotify.py` 的
+  `_playlist_items()`／`_add_items()`／`_remove_items()`（走 `/playlists/{id}/items`，舊 app 也相容）
+- 建歌單用 `_create_playlist()`（`POST /me/playlists`），不要用 `user_playlist_create`（`/users/{id}/playlists`）
+- `/items` 項目：新 app 只有 `item` 鍵、舊 app 兩者都有 → 解析用 `it.get("item") or it.get("track")`；GET 一頁上限 50
+- 歌單物件的曲目數用 `get_playlist_total()`（新 app 欄位名可能是 `items` 而非 `tracks`）
+- `/artists?ids`、`/artists/{id}/top-tracks`、`/browse/new-releases` 403；單一 `/artists/{id}` 沒有 `genres`。本專案目前都沒用到
+- 切換 app：環境變數覆寫 `SPOTIFY_CLIENT_ID`／`SPOTIFY_CLIENT_SECRET`／`SPOTIFY_CACHE_PATH`（預設 `.spotify_cache`），`auth.py` 同樣適用
+
 ## Apple Music：已停止支援，不要再實作
 
 > **重要**：專案曾用四種方式嘗試同步 Apple Music，全部移除，**不要再提議加回來**：

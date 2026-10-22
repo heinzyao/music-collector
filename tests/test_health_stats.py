@@ -99,13 +99,13 @@ def _playlist(pid, name, owner="me"):
 def test_own_playlist_track_ids_excludes_generated_and_paginates(monkeypatch):
     monkeypatch.setattr(stats, "ALL_TIME_PLAYLIST_NAME", "Custom All Time")
     sp = MagicMock()
-    sp.me.return_value = {"id": "me"}
+    sp.current_user.return_value = {"id": "me"}
     pages = {
         "playlists-2": {"items": [_playlist("p2", "Mine 2")], "next": None},
-        "p1-2": {"items": [{"track": {"id": "B"}}], "next": None},
+        "p1-2": {"items": [{"track": {"uri": "u:B", "id": "B"}}], "next": None},  # 舊 app 的 track 鍵
     }
     sp.next.side_effect = lambda r: pages[r["next"]]
-    sp.current_user_playlists.return_value = {
+    sp.current_user_playlists.side_effect = lambda limit, offset: pages["playlists-2"] if offset else {
         "items": [
             _playlist("p1", "Mine"),
             _playlist("cp", "Critics' Picks — All Time"),
@@ -116,13 +116,16 @@ def test_own_playlist_track_ids_excludes_generated_and_paginates(monkeypatch):
         ],
         "next": "playlists-2",
     }
-    sp.playlist_items.side_effect = lambda pid, **kw: {
-        "p1": {"items": [{"track": {"id": "A"}}, {"track": None}, {"track": {"id": None}}], "next": "p1-2"},
-        "p2": {"items": [{"track": {"id": "C"}}], "next": None},
-    }[pid]
+    sp._get.side_effect = lambda path, **kw: {
+        "p1": {
+            "items": [{"item": {"uri": "u:A", "id": "A"}}, {"item": None}, {"item": {"uri": "u:x", "id": None}}],
+            "next": "p1-2",
+        },
+        "p2": {"items": [{"item": {"uri": "u:C", "id": "C"}}], "next": None},
+    }[path.split("/")[1]]
 
     assert stats.own_playlist_track_ids(sp) == {"A", "B", "C"}
-    assert sorted(c.args[0] for c in sp.playlist_items.call_args_list) == ["p1", "p2"]
+    assert sorted(c.args[0] for c in sp._get.call_args_list) == ["playlists/p1/items", "playlists/p2/items"]
 
 
 def test_compute_adoption_sorts_by_rate(conn):

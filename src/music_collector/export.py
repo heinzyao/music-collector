@@ -102,18 +102,16 @@ def export_csv(
 def export_spotify_url() -> None:
     """輸出主歌單與 All Time 累積歌單的 Spotify 連結與曲目數。"""
     from .config import ALL_TIME_PLAYLIST_NAME
-    from .spotify import get_spotify_client, get_or_create_playlist
+    from .spotify import get_spotify_client, get_or_create_playlist, get_playlist_total
 
     try:
         sp = get_spotify_client()
 
         for name in (None, ALL_TIME_PLAYLIST_NAME):
             playlist_id = get_or_create_playlist(sp, name=name)
-            playlist = sp.playlist(
-                playlist_id, fields="external_urls,name,tracks(total)"
-            )
+            playlist = sp.playlist(playlist_id, fields="external_urls,name")
             print(f"\n🎵 {playlist['name']}")
-            print(f"   曲目數：{playlist['tracks']['total']} 首")
+            print(f"   曲目數：{get_playlist_total(sp, playlist_id)} 首")
             print(f"   連結：{playlist['external_urls']['spotify']}")
     except Exception as e:
         logger.error(f"取得 Spotify 播放清單失敗：{e}")

@@ -2,6 +2,8 @@ from unittest.mock import Mock
 
 from music_collector.config import ALL_TIME_PLAYLIST_NAME, PLAYLIST_NAME
 from music_collector.spotify import (
+    _playlist_items,
+    _remove_items,
     add_tracks_to_playlist,
     backfill_all_time,
     get_or_create_playlist,
@@ -17,14 +19,24 @@ def _mock_sp(playlists: list[dict], items_by_id: dict[str, list[str]]) -> Mock:
     for pl in playlists:
         pl.setdefault("owner", {"id": "henry"})  # 未指定 owner 即視為自己的歌單
     sp.current_user_playlists.return_value = {"items": playlists, "next": None}
-    sp.playlist_items.side_effect = lambda pid, **kw: {
+    sp._get.side_effect = lambda path, **kw: {
         "items": [
-            {"track": {"uri": uri}, "added_at": "2026-08-01T00:00:00Z"}
-            for uri in items_by_id.get(pid, [])
+            {"item": {"uri": uri}, "added_at": "2026-08-01T00:00:00Z"}
+            for uri in items_by_id[path.split("/")[1]]
         ],
         "next": None,
     }
+    sp._post.return_value = {"id": "mine"}
     return sp
+
+
+def _added(sp: Mock) -> list[tuple[str, list[str]]]:
+    """回傳所有 POST /items 呼叫的 (playlist_id, uris)。"""
+    return [
+        (c.args[0].split("/")[1], c.kwargs["payload"]["uris"])
+        for c in sp._post.call_args_list
+        if c.args[0].endswith("/items")
+    ]
 
 
 def test_search_track_uses_primary_artist_for_feature():
@@ -50,9 +62,9 @@ def test_get_or_create_playlist_ignores_followed_playlist_of_same_name():
         ],
         items_by_id={},
     )
-    sp.user_playlist_create.return_value = {"id": "mine"}
-
     assert get_or_create_playlist(sp) == "mine"
+    sp._post.assert_called_once()
+    assert sp._post.call_args.args[0] == "me/playlists"  # /users/{id}/playlists 新 app 被封
     sp.playlist_change_details.assert_not_called()
 
 
@@ -66,7 +78,7 @@ def test_mirror_to_all_time_skips_existing_uris():
     added = mirror_to_all_time(sp, ["spotify:track:a", "spotify:track:b"])
 
     assert added == 1
-    sp.playlist_add_items.assert_called_once_with("all", ["spotify:track:b"])
+    assert _added(sp) == [("all", ["spotify:track:b"])]
 
 
 def test_add_tracks_to_playlist_skips_duplicates():
@@ -84,7 +96,7 @@ def test_add_tracks_to_playlist_skips_duplicates():
         sp, "main", ["spotify:track:a", "spotify:track:b", "spotify:track:b"]
     )
 
-    sp.playlist_add_items.assert_called_once_with("main", ["spotify:track:b"])
+    assert _added(sp) == [("main", ["spotify:track:b"])]
 
 
 def test_mirror_to_all_time_dedupes_within_incoming_batch():
@@ -103,9 +115,7 @@ def test_mirror_to_all_time_dedupes_within_incoming_batch():
     )
 
     assert added == 2
-    sp.playlist_add_items.assert_called_once_with(
-        "all", ["spotify:track:a", "spotify:track:b"]
-    )
+    assert _added(sp) == [("all", ["spotify:track:a", "spotify:track:b"])]
 
 
 def test_backfill_all_time_collects_main_and_archives_only():
@@ -128,9 +138,7 @@ def test_backfill_all_time_collects_main_and_archives_only():
     added = backfill_all_time(sp)
 
     assert added == 2
-    sp.playlist_add_items.assert_called_once_with(
-        "all", ["spotify:track:a", "spotify:track:b"]
-    )
+    assert _added(sp) == [("all", ["spotify:track:a", "spotify:track:b"])]
 
 
 def _search_results(*rounds: list[dict]) -> Mock:
@@ -172,3 +180,40 @@ def test_search_track_skips_possessive_retry_when_remainder_is_one_word():
 
     assert search_track(sp, "sachi’s mirror", "Talking in a Different Way") is None
     assert sp.search.call_count == 2
+
+
+def test_playlist_items_paginates_and_accepts_item_or_track_key():
+    """新 app 只回 item 鍵、舊 app 兩者都有；分頁走 next，略過已下架的 null 項目。"""
+    sp = Mock()
+    sp._get.return_value = {
+        "items": [
+            {"item": {"uri": "u:a", "id": "a"}, "added_at": "t1"},
+            {"item": None, "track": None},
+        ],
+        "next": "page2",
+    }
+    sp.next.side_effect = lambda r: {
+        "items": [{"track": {"uri": "u:b", "id": "b"}, "added_at": "t2"}],
+        "next": None,
+    }
+
+    assert list(_playlist_items(sp, "pl")) == [
+        {"uri": "u:a", "id": "a", "added_at": "t1"},
+        {"uri": "u:b", "id": "b", "added_at": "t2"},
+    ]
+    assert sp._get.call_args.args[0] == "playlists/pl/items"
+    assert sp._get.call_args.kwargs["limit"] == 50
+
+
+def test_add_and_remove_items_batch_by_100():
+    uris = [f"spotify:track:{i}" for i in range(250)]
+    sp = _mock_sp(playlists=[], items_by_id={"main": []})
+
+    add_tracks_to_playlist(sp, "main", uris)
+    assert [len(u) for _, u in _added(sp)] == [100, 100, 50]
+    assert sum((u for _, u in _added(sp)), []) == uris
+
+    _remove_items(sp, "main", uris)
+    sizes = [len(c.kwargs["payload"]["items"]) for c in sp._delete.call_args_list]
+    assert sizes == [100, 100, 50]
+    assert sp._delete.call_args.args[0] == "playlists/main/items"

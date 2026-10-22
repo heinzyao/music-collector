@@ -4,7 +4,7 @@
     PYTHONPATH=src uv run python auth.py
 
 spotipy 會開瀏覽器到授權頁，並在 SPOTIFY_REDIRECT_URI 的本機埠接回呼；
-Token 快取至 .spotify_cache，後續執行主程式時自動更新。
+Token 快取至 .spotify_cache（可用環境變數 SPOTIFY_CACHE_PATH 覆寫），後續執行主程式時自動更新。
 """
 
 import sys

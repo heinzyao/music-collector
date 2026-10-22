@@ -141,27 +141,15 @@ def own_playlist_track_ids(sp) -> set[str]:
     排除本工具產生的歌單（名稱以 Critics' Picks 開頭、Fresh Tracks，
     以及環境變數覆寫後的主歌單／All Time 名稱），否則採用率會被自己灌水。
     """
-    me = sp.me()["id"]
+    from .spotify import _own_playlists, _playlist_items
+
     ids: set[str] = set()
-    res = sp.current_user_playlists(limit=50)
-    while res:
-        for p in res["items"]:
-            if (
-                not p
-                or p["owner"]["id"] != me
-                or p["name"].startswith("Critics' Picks")
-                or p["name"] in ("Fresh Tracks", PLAYLIST_NAME, ALL_TIME_PLAYLIST_NAME)
-            ):
-                continue
-            r = sp.playlist_items(
-                p["id"], fields="items(track(id)),next", limit=100, additional_types=("track",)
-            )
-            while r:
-                ids.update(
-                    it["track"]["id"] for it in r["items"] if it.get("track") and it["track"].get("id")
-                )
-                r = sp.next(r) if r.get("next") else None
-        res = sp.next(res) if res.get("next") else None
+    for p in _own_playlists(sp):
+        if p["name"].startswith("Critics' Picks") or p["name"] in (
+            "Fresh Tracks", PLAYLIST_NAME, ALL_TIME_PLAYLIST_NAME
+        ):
+            continue
+        ids.update(t["id"] for t in _playlist_items(sp, p["id"]) if t["id"])
     return ids
 
 

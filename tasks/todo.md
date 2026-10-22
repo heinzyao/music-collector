@@ -1,3 +1,39 @@
+# Spotify 改走 /playlists/{id}/items（相容 2026 新 app）
+
+## 背景
+
+2026 新建的 Developer app 封掉 `/playlists/{id}/tracks` 與 `/users/{id}/playlists`（Hermes 2026-10-23 實測）。
+改走 `/items`、`/me/playlists`，舊 app 也相容。不切換 `.env`（Hermes 驗證後再切）。
+
+## 清單
+
+- [x] `spotify.py` helper：`_playlist_items`（分頁、item/track 鍵）、`_add_items`／`_remove_items`（≤100）、`_create_playlist`、`get_playlist_total`
+- [x] 取代所有 `/tracks` 與 `/users/{id}` 呼叫（spotify.py、stats.py、main.py、export.py）
+- [x] `SPOTIFY_CACHE_PATH` 環境變數覆寫（config.py；auth.py 沿用）
+- [x] 單元測試（全 mock）
+- [x] 實測：暫存歌單在兩個 app 上建立→加入（含重複）→讀回→移除→unfollow，無殘留
+- [x] 舊 app `./run.sh --dry-run`、唯讀 `--stats adoption`
+- [x] AGENTS.md 新增「Spotify Developer app 與端點」
+- [x] pytest、ruff、Opus 第二意見、commit
+
+## Review
+
+- 實測腳本 `~/.hermes/cache/scratch/mc_items_live.py`（不進 repo）
+  - 舊 app（…00ed）：讀回 3 首（去重正確）、total 3、項目鍵 item+track、移除後 0、unfollow 後無殘留
+  - 新 app（…54c6）：同上，項目鍵只有 item
+- `--dry-run`：exit 0、DB md5 前後一致（dry-run 不呼叫 Spotify）
+- `--stats adoption`（舊 app，唯讀）：讀完所有自有歌單，合計 2395／106
+- 沒用到 `/artists` 批次、`/browse/new-releases`、genres，無需降級
+- 未用 `playlist_replace_items`（PUT /items），故未測
+
+### Opus 第二意見
+
+- 採納：`archive_previous_quarters()` 寫入歸檔缺批次自身去重（違反兩層去重規則）→ 補 `dict.fromkeys`；`_remove_items()` 送出前也去重
+- 採納：`SPOTIFY_CACHE_PATH` 展開 `~`，相對路徑以專案根目錄為準（launchd CWD 不同時才不會找不到 token）
+- 駁回：依賴 spotipy 私有 `_get/_post/_delete` —— spotipy 沒有 `/items` 的公開方法，版本由 uv.lock 鎖定
+- 駁回（既有行為、範圍外）：歸檔時移除所有出現位置可能連當季重複的那份一起刪 —— 寫入端已兩層去重，主歌單不會有重複
+- 駁回：`get_playlist_total()` 兩鍵皆缺時錯誤訊息不清 —— 兩個 app 實測都有值，呼叫端皆有 try/except
+
 # 試加歐美樂評來源（補 R&B／電子／爵士）
 
 ## 背景

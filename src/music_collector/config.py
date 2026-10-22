@@ -34,7 +34,11 @@ PLAYLIST_DESCRIPTION = (
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # 專案根目錄
 DATA_DIR = PROJECT_ROOT / "data"  # 資料存放目錄
 DB_PATH = DATA_DIR / "tracks.db"  # SQLite 資料庫路徑
-SPOTIFY_CACHE_PATH = PROJECT_ROOT / ".spotify_cache"  # Spotify OAuth Token 快取
+# Spotify OAuth Token 快取；可用環境變數覆寫（切換 Developer app 時各用一份）
+# 相對路徑以專案根目錄為準（launchd 的 CWD 不一定是專案目錄）
+SPOTIFY_CACHE_PATH = PROJECT_ROOT / Path(
+    os.environ.get("SPOTIFY_CACHE_PATH") or ".spotify_cache"
+).expanduser()
 
 # ── LINE Messaging API 憑證（選用）──
 LINE_CHANNEL_ID = os.environ.get("LINE_CHANNEL_ID", "")

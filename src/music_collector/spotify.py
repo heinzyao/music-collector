@@ -134,25 +134,58 @@ def search_track(sp: spotipy.Spotify, artist: str, title: str) -> str | None:
 # ── 播放清單管理 ──
 
 
+# ── 歌單項目 helper ──
+# 2026 年後建立的 Developer app 被封掉 /playlists/{id}/tracks（spotipy 的
+# playlist_items、playlist_add_items、playlist_remove_* 都走這條）與
+# POST /users/{id}/playlists，只能走 /playlists/{id}/items 與 /me/playlists。
+# 舊 app 兩條都能用，所以一律走新端點。讀寫歌單項目一律用以下 helper。
+
+
+def _playlist_items(sp: spotipy.Spotify, playlist_id: str) -> Iterator[dict]:
+    """逐頁產出歌單項目 {uri, id, added_at}（GET /items 一頁上限 50）。"""
+    page = sp._get(f"playlists/{playlist_id}/items", limit=50)
+    while page:
+        for it in page["items"]:
+            # 新 app 只有 item 鍵；舊 app 同時有 item 與 track
+            track = it.get("item") or it.get("track")
+            if track and track.get("uri"):
+                yield {"uri": track["uri"], "id": track.get("id"), "added_at": it.get("added_at")}
+        page = sp.next(page) if page.get("next") else None
+
+
+def _add_items(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
+    """依序加入曲目（每次 ≤100）。不去重 —— 呼叫端負責兩層去重。"""
+    for i in range(0, len(uris), 100):
+        sp._post(f"playlists/{playlist_id}/items", payload={"uris": uris[i : i + 100]})
+
+
+def _remove_items(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
+    """移除曲目的所有出現位置（每次 ≤100）。"""
+    uris = list(dict.fromkeys(uris))
+    for i in range(0, len(uris), 100):
+        sp._delete(
+            f"playlists/{playlist_id}/items",
+            payload={"items": [{"uri": u} for u in uris[i : i + 100]]},
+        )
+
+
+def _create_playlist(sp: spotipy.Spotify, name: str, description: str, public: bool = True) -> str:
+    """建立歌單（POST /me/playlists），回傳 ID。"""
+    return sp._post(
+        "me/playlists",
+        payload={"name": name, "public": public, "description": description},
+    )["id"]
+
+
+def get_playlist_total(sp: spotipy.Spotify, playlist_id: str) -> int:
+    """歌單曲目數。新 app 的歌單物件把 tracks 欄位改名為 items，兩者都接受。"""
+    pl = sp.playlist(playlist_id, fields="items(total),tracks(total)")
+    return (pl.get("items") or pl.get("tracks"))["total"]
+
+
 def _get_all_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict]:
-    """取得播放清單中所有曲目，回傳 [{uri, added_at}, ...]。"""
-    tracks: list[dict] = []
-    results = sp.playlist_items(
-        playlist_id,
-        fields="items(track(uri),added_at),next",
-    )
-    while results:
-        for item in results["items"]:
-            if item.get("track") and item["track"].get("uri"):
-                tracks.append({
-                    "uri": item["track"]["uri"],
-                    "added_at": item["added_at"],
-                })
-        if results.get("next"):
-            results = sp.next(results)
-        else:
-            break
-    return tracks
+    """取得播放清單中所有曲目，回傳 [{uri, id, added_at}, ...]。"""
+    return list(_playlist_items(sp, playlist_id))
 
 
 def _own_playlists(sp: spotipy.Spotify) -> Iterator[dict]:
@@ -166,7 +199,7 @@ def _own_playlists(sp: spotipy.Spotify) -> Iterator[dict]:
     while True:
         page = sp.current_user_playlists(limit=50, offset=offset)
         for pl in page["items"]:
-            if pl["owner"]["id"] == user_id:
+            if pl and pl["owner"]["id"] == user_id:  # 已刪除的歌單會是 null
                 yield pl
         if not page.get("next"):
             break
@@ -184,8 +217,6 @@ def get_or_create_playlist(
     """取得現有播放清單，或建立新的播放清單。回傳播放清單 ID。"""
     name = name or PLAYLIST_NAME
     description = description or PLAYLIST_DESCRIPTION
-    user_id = sp.current_user()["id"]
-
     for pl in _own_playlists(sp):
         if pl["name"] == name:
             logger.info(f"找到現有播放清單：{name} ({pl['id']})")
@@ -194,14 +225,9 @@ def get_or_create_playlist(
             return pl["id"]
 
     # 未找到 → 建立新播放清單
-    playlist = sp.user_playlist_create(
-        user=user_id,
-        name=name,
-        public=True,
-        description=description,
-    )
-    logger.info(f"已建立新播放清單：{name} ({playlist['id']})")
-    return playlist["id"]
+    playlist_id = _create_playlist(sp, name, description)
+    logger.info(f"已建立新播放清單：{name} ({playlist_id})")
+    return playlist_id
 
 
 def add_tracks_to_playlist(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
@@ -219,10 +245,8 @@ def add_tracks_to_playlist(sp: spotipy.Spotify, playlist_id: str, uris: list[str
         logger.info("播放清單已包含所有曲目，無需加入")
         return
 
-    for i in range(0, len(new_uris), 100):
-        batch = new_uris[i : i + 100]
-        sp.playlist_add_items(playlist_id, batch)
-        logger.info(f"已加入 {len(batch)} 首曲目至播放清單")
+    _add_items(sp, playlist_id, new_uris)
+    logger.info(f"已加入 {len(new_uris)} 首曲目至播放清單")
 
 
 def clear_playlist(sp: spotipy.Spotify, playlist_id: str) -> int:
@@ -232,8 +256,7 @@ def clear_playlist(sp: spotipy.Spotify, playlist_id: str) -> int:
         return 0
 
     uris = [t["uri"] for t in all_tracks]
-    for i in range(0, len(uris), 100):
-        sp.playlist_remove_all_occurrences_of_items(playlist_id, uris[i : i + 100])
+    _remove_items(sp, playlist_id, uris)
 
     logger.info(f"已清除播放清單中 {len(uris)} 首曲目")
     return len(uris)
@@ -267,8 +290,7 @@ def mirror_to_all_time(sp: spotipy.Spotify, uris: list[str]) -> int:
     # 只比對 existing 擋不住批次內部的重複
     new_uris = list(dict.fromkeys(u for u in uris if u not in existing))
 
-    for i in range(0, len(new_uris), 100):
-        sp.playlist_add_items(playlist_id, new_uris[i : i + 100])
+    _add_items(sp, playlist_id, new_uris)
 
     logger.info(f"All Time 累積歌單新增 {len(new_uris)} 首（送入 {len(uris)} 首）")
     return len(new_uris)
@@ -328,7 +350,6 @@ def archive_previous_quarters(sp: spotipy.Spotify, playlist_id: str) -> None:
     if not to_archive:
         return
 
-    user_id = sp.current_user()["id"]
     uris_to_remove: list[str] = []
 
     for (year, quarter), uris in sorted(to_archive.items()):
@@ -337,29 +358,19 @@ def archive_previous_quarters(sp: spotipy.Spotify, playlist_id: str) -> None:
 
         if not archive_id:
             desc = f"Critics' Picks {year} 年第 {quarter} 季歸檔｜由 Music Collector 自動管理"
-            playlist = sp.user_playlist_create(
-                user=user_id,
-                name=archive_name,
-                public=True,
-                description=desc,
-            )
-            archive_id = playlist["id"]
+            archive_id = _create_playlist(sp, archive_name, desc)
             logger.info(f"已建立歸檔播放清單：{archive_name}")
 
         # 避免重複加入
         existing_uris = {t["uri"] for t in _get_all_playlist_tracks(sp, archive_id)}
-        new_uris = [u for u in uris if u not in existing_uris]
+        new_uris = list(dict.fromkeys(u for u in uris if u not in existing_uris))
 
-        for i in range(0, len(new_uris), 100):
-            sp.playlist_add_items(archive_id, new_uris[i : i + 100])
+        _add_items(sp, archive_id, new_uris)
 
         uris_to_remove.extend(uris)
         logger.info(f"已歸檔 {len(new_uris)} 首至 {archive_name}")
 
     # 從主播放清單移除已歸檔曲目
-    for i in range(0, len(uris_to_remove), 100):
-        sp.playlist_remove_all_occurrences_of_items(
-            playlist_id, uris_to_remove[i : i + 100],
-        )
+    _remove_items(sp, playlist_id, uris_to_remove)
 
     logger.info(f"已從主播放清單移除 {len(uris_to_remove)} 首過季曲目")
