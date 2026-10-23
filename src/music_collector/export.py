@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import sqlite3
+from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -132,15 +133,16 @@ def _show_available_backups() -> None:
 
 CRITICS_DAYS = 90
 CRITICS_LIMIT = 300
+CRITICS_PER_SOURCE = 40  # 避免少數高產來源（Stereogum、Rolling Stone）洗版
 
 
 def build_critics(conn: sqlite3.Connection) -> dict:
-    """取最近 90 天、有 Spotify URI 的曲目，新到舊最多 300 筆。
+    """取最近 90 天、有 Spotify URI 的曲目，新到舊最多 300 筆，每個來源最多 40 筆。
 
     added_at 是 SQLite CURRENT_TIMESTAMP（UTC），所以篩選也交給 SQLite 的 'now' 比較，
     輸出時補上 Z 標示 UTC。
     DB 去重鍵 (artist, title) 與 URI 不是一對一（見 AGENTS.md「播放清單去重」），
-    同一 URI 只留最新一筆，再截上限。
+    同一 URI 只留最新一筆，再依來源上限與總上限挑選。
     """
     rows = conn.execute(
         "SELECT artist, title, source, spotify_uri, added_at FROM tracks "
@@ -152,6 +154,14 @@ def build_critics(conn: sqlite3.Connection) -> dict:
     latest = {}
     for row in rows:
         latest.setdefault(row[3], row)
+    per_source = Counter()
+    picked = []
+    for row in latest.values():
+        if per_source[row[2]] < CRITICS_PER_SOURCE:
+            per_source[row[2]] += 1
+            picked.append(row)
+            if len(picked) == CRITICS_LIMIT:
+                break
     tracks = [
         {
             "artist": artist,
@@ -160,7 +170,7 @@ def build_critics(conn: sqlite3.Connection) -> dict:
             "spotify_uri": uri,
             "added_at": str(added_at).replace(" ", "T") + "Z",
         }
-        for artist, title, source, uri, added_at in list(latest.values())[:CRITICS_LIMIT]
+        for artist, title, source, uri, added_at in picked
     ]
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),

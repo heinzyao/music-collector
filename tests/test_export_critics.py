@@ -58,10 +58,27 @@ def test_build_critics_caps_at_limit(tmp_path, monkeypatch):
 def test_build_critics_default_limit_300(tmp_path, monkeypatch):
     conn = _db(tmp_path, monkeypatch)
     conn.executemany(
-        "INSERT INTO tracks (artist, title, source, spotify_uri) VALUES (?, ?, 'X', ?)",
-        [(f"a{i}", f"t{i}", f"spotify:track:{i}") for i in range(310)],
+        "INSERT INTO tracks (artist, title, source, spotify_uri) VALUES (?, ?, ?, ?)",
+        [(f"a{i}", f"t{i}", f"S{i % 10}", f"spotify:track:{i}") for i in range(500)],
     )
     assert len(export.build_critics(conn)["tracks"]) == 300
+
+
+def test_build_critics_caps_per_source(tmp_path, monkeypatch):
+    conn = _db(tmp_path, monkeypatch)
+    monkeypatch.setattr(export, "CRITICS_PER_SOURCE", 1)
+    # B 有 Mid、Edge 兩筆，只留較新的 Mid
+    assert [t["artist"] for t in export.build_critics(conn)["tracks"]] == ["New", "Mid"]
+
+
+def test_build_critics_default_per_source_40(tmp_path, monkeypatch):
+    conn = _db(tmp_path, monkeypatch)
+    conn.executemany(
+        "INSERT INTO tracks (artist, title, source, spotify_uri) VALUES (?, ?, 'X', ?)",
+        [(f"a{i}", f"t{i}", f"spotify:track:{i}") for i in range(50)],
+    )
+    sources = [t["source"] for t in export.build_critics(conn)["tracks"]]
+    assert sources.count("X") == 40
 
 
 def _fake_storage(monkeypatch, upload_side_effect=None):
