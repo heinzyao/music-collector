@@ -51,8 +51,8 @@ DB 最近 30 天新曲目 373 首。NME、RA 這 30 天貢獻 0 首，移除不�
 獨立搖滾類（Stereogum 165、The Quietus 27、DIY 11、The Line of Best Fit 8、Pitchfork 2、Gorilla vs. Bear 2）= 215 首 = **57.6%**。
 
 加入 When We Dip（1.5 首/日 × 30 = 45 首，以未去重的解析數為上界）：215 / 418 = **51.4%**，比照 SoulBounce **不設曲目上限**
-（SoulBounce 預估 22 首、實際 30 天 7 首，上界估算偏高）。門檻已於 2026-10-23 由 50% 下修為約 30%：目前 51～58% 遠高於門檻，不需要上限；
-若 `--stats sources` 顯示獨立搖滾跌破 30%，再對 When We Dip 設每次上限。
+（SoulBounce 預估 22 首、實際 30 天 7 首，上界估算偏高）。門檻已於 2026-10-23 由 50% 下修為約 30%，同日再下修為約 25%：目前 51～58% 遠高於門檻，不需要上限；
+若 `--stats sources` 顯示獨立搖滾跌破 25%，再對 When We Dip 設每次上限。
 
 ## Review
 
@@ -140,7 +140,7 @@ R&B／soul、電子、爵士幾乎沒有活躍來源（Resident Advisor 81 天�
 DB 最近 30 天新曲目 373 首（12.4 首/日）。獨立搖滾類（Stereogum 172、The Quietus 28、DIY 11、
 The Line of Best Fit 7、Pitchfork 2、Gorilla vs. Bear 1）= 221 首 = **59.2%**。
 
-加入 SoulBounce（0.73 首/日 × 30 ≈ 22 首，以未去重的解析數為上界）：221 / 395 = **55.9%**，仍 ≥ 50%（當時門檻，現已下修為約 30%），**不設曲目上限**。
+加入 SoulBounce（0.73 首/日 × 30 ≈ 22 首，以未去重的解析數為上界）：221 / 395 = **55.9%**，仍 ≥ 50%（當時門檻，現已下修為約 25%），**不設曲目上限**。
 （保守算法：Aquarium Drunkard、Bandcamp Daily 不計入獨立搖滾。）
 
 ## Review
