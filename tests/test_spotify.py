@@ -27,6 +27,7 @@ def _mock_sp(playlists: list[dict], items_by_id: dict[str, list[str]]) -> Mock:
         "next": None,
     }
     sp._post.return_value = {"id": "mine"}
+    sp.playlist.return_value = {"snapshot_id": None}  # 沒有 snapshot → 不走快取
     return sp
 
 
@@ -234,3 +235,41 @@ def test_429_raises_immediately_with_retry_after():
     with patch("spotipy.Spotify._internal_call", side_effect=err), pytest.raises(RateLimited) as ei:
         sp.search(q="x")
     assert ei.value.retry_after == 52000 and "14.4 小時" in str(ei.value)
+
+
+def test_playlist_cache_skips_reread_until_snapshot_changes():
+    """snapshot 沒變不讀 /items；自己寫入後用回應的 snapshot 更新快取，隔天也不必重讀。"""
+    sp = _mock_sp(playlists=[], items_by_id={"main": ["spotify:track:a"]})
+    sp.playlist.return_value = {"snapshot_id": "s1"}
+    sp._post.return_value = {"snapshot_id": "s2"}
+
+    add_tracks_to_playlist(sp, "main", ["spotify:track:b"])
+    assert sp._get.call_count == 1
+
+    sp.playlist.return_value = {"snapshot_id": "s2"}  # 剛才寫入產生的版本
+    add_tracks_to_playlist(sp, "main", ["spotify:track:a", "spotify:track:b"])
+    assert sp._get.call_count == 1  # 走快取，且 a、b 都被認成既有曲目
+    assert _added(sp) == [("main", ["spotify:track:b"])]
+
+    sp.playlist.return_value = {"snapshot_id": "s3"}  # 使用者在別處改過歌單
+    add_tracks_to_playlist(sp, "main", ["spotify:track:c"])
+    assert sp._get.call_count == 2
+
+    _remove_items(sp, "main", ["spotify:track:a"])  # 移除後丟快取
+    sp.playlist.return_value = {"snapshot_id": "s2"}
+    add_tracks_to_playlist(sp, "main", ["spotify:track:d"])
+    assert sp._get.call_count == 3
+
+
+def test_own_playlists_scanned_once_and_description_synced_only_when_changed():
+    sp = _mock_sp(
+        playlists=[
+            {"id": "main", "name": PLAYLIST_NAME, "description": "舊描述"},
+            {"id": "all", "name": ALL_TIME_PLAYLIST_NAME, "description": "A &amp; B"},
+        ],
+        items_by_id={},
+    )
+    get_or_create_playlist(sp, description="新描述")
+    get_or_create_playlist(sp, name=ALL_TIME_PLAYLIST_NAME, description="A & B")
+    assert sp.current_user_playlists.call_count == 1 and sp.current_user.call_count == 1
+    sp.playlist_change_details.assert_called_once_with("main", description="新描述")

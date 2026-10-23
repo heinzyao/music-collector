@@ -4,6 +4,8 @@
 首次執行需瀏覽器授權，之後 Token 自動從快取更新。
 """
 
+import html
+import json
 import logging
 import math
 import re
@@ -17,6 +19,7 @@ from spotipy.oauth2 import SpotifyOAuth
 from .config import (
     ALL_TIME_PLAYLIST_DESCRIPTION,
     ALL_TIME_PLAYLIST_NAME,
+    DATA_DIR,
     PLAYLIST_DESCRIPTION,
     PLAYLIST_NAME,
     SPOTIFY_CACHE_PATH,
@@ -31,6 +34,10 @@ logger = logging.getLogger(__name__)
 # 播放清單讀寫權限。read-private 是必要的：get_or_create_playlist() 與
 # backfill_all_time() 都靠 current_user_playlists() 找歌單，少了它會 403。
 SCOPE = "playlist-modify-public playlist-modify-private playlist-read-private"
+
+# 歌單內容的本機快取 {playlist_id: {snapshot_id, tracks}}。snapshot_id 沒變就不重讀；
+# 每日排程原本光 All Time 就要讀 35 頁以上，而 /items 正是新 app 被 429 封的端點。
+PLAYLIST_CACHE_PATH = DATA_DIR / "playlist_cache.json"
 
 
 class RateLimited(RuntimeError):
@@ -198,10 +205,37 @@ def _playlist_items(sp: spotipy.Spotify, playlist_id: str) -> Iterator[dict]:
         page = sp.next(page) if page.get("next") else None
 
 
+def _load_cache() -> dict:
+    try:
+        return json.loads(PLAYLIST_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_cache(cache: dict) -> None:
+    PLAYLIST_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLAYLIST_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+
+
 def _add_items(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
-    """依序加入曲目（每次 ≤100）。不去重 —— 呼叫端負責兩層去重。"""
+    """依序加入曲目（每次 ≤100）。不去重 —— 呼叫端負責兩層去重。
+
+    呼叫端都是剛用 _get_all_playlist_tracks() 驗過快取才加入，所以可以直接把新曲目
+    接到快取後面、換上回應的 snapshot_id；回應沒有 snapshot_id 就丟掉快取。
+    """
+    cache = _load_cache()
+    entry = cache.get(playlist_id)
     for i in range(0, len(uris), 100):
-        sp._post(f"playlists/{playlist_id}/items", payload={"uris": uris[i : i + 100]})
+        chunk = uris[i : i + 100]
+        snap = sp._post(f"playlists/{playlist_id}/items", payload={"uris": chunk}).get("snapshot_id")
+        if entry and snap:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            entry["tracks"] += [{"uri": u, "id": u.rsplit(":", 1)[-1], "added_at": now} for u in chunk]
+            entry["snapshot_id"] = snap
+        else:
+            entry = None
+            cache.pop(playlist_id, None)
+    _save_cache(cache)
 
 
 def _remove_items(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> None:
@@ -212,10 +246,14 @@ def _remove_items(sp: spotipy.Spotify, playlist_id: str, uris: list[str]) -> Non
             f"playlists/{playlist_id}/items",
             payload={"items": [{"uri": u} for u in uris[i : i + 100]]},
         )
+    cache = _load_cache()
+    if cache.pop(playlist_id, None):  # ponytail: 移除很少發生（每季歸檔），直接丟快取下次重讀
+        _save_cache(cache)
 
 
 def _create_playlist(sp: spotipy.Spotify, name: str, description: str, public: bool = True) -> str:
     """建立歌單（POST /me/playlists），回傳 ID。"""
+    vars(sp).pop("_own_playlists_cache", None)  # 讓下次 _own_playlists() 重掃
     return sp._post(
         "me/playlists",
         payload={"name": name, "public": public, "description": description},
@@ -229,26 +267,42 @@ def get_playlist_total(sp: spotipy.Spotify, playlist_id: str) -> int:
 
 
 def _get_all_playlist_tracks(sp: spotipy.Spotify, playlist_id: str) -> list[dict]:
-    """取得播放清單中所有曲目，回傳 [{uri, id, added_at}, ...]。"""
-    return list(_playlist_items(sp, playlist_id))
+    """取得播放清單中所有曲目，回傳 [{uri, id, added_at}, ...]。
+
+    先花 1 個請求問 snapshot_id，和本機快取相同就不讀 /items。
+    """
+    snap = sp.playlist(playlist_id, fields="snapshot_id").get("snapshot_id")
+    cache = _load_cache()
+    hit = cache.get(playlist_id)
+    if snap and hit and hit["snapshot_id"] == snap:
+        return hit["tracks"]
+    tracks = list(_playlist_items(sp, playlist_id))
+    if snap:  # 讀取中途被改過也沒關係：下次 snapshot 對不上就會重讀
+        cache[playlist_id] = {"snapshot_id": snap, "tracks": tracks}
+        _save_cache(cache)
+    return tracks
 
 
-def _own_playlists(sp: spotipy.Spotify) -> Iterator[dict]:
-    """逐頁產出使用者「自己擁有」的播放清單。
+def _own_playlists(sp: spotipy.Spotify) -> list[dict]:
+    """使用者「自己擁有」的播放清單；同一個 client 只掃一次（一次執行內會被呼叫 3～4 次）。
 
     current_user_playlists() 會一併回傳追蹤中的、別人擁有的歌單。只比對名稱的話，
     追蹤了同名歌單就會鎖定到別人的那一份，之後所有寫入都會失敗。
     """
+    cached = vars(sp).get("_own_playlists_cache")
+    if cached is not None:
+        return cached
     user_id = sp.current_user()["id"]
+    own: list[dict] = []
     offset = 0
     while True:
         page = sp.current_user_playlists(limit=50, offset=offset)
-        for pl in page["items"]:
-            if pl and pl["owner"]["id"] == user_id:  # 已刪除的歌單會是 null
-                yield pl
+        own += [pl for pl in page["items"] if pl and pl["owner"]["id"] == user_id]  # 已刪除的歌單會是 null
         if not page.get("next"):
             break
         offset += 50
+    sp._own_playlists_cache = own
+    return own
 
 
 def _find_playlist(sp: spotipy.Spotify, name: str) -> str | None:
@@ -265,8 +319,9 @@ def get_or_create_playlist(
     for pl in _own_playlists(sp):
         if pl["name"] == name:
             logger.info(f"找到現有播放清單：{name} ({pl['id']})")
-            # 同步更新描述（確保描述始終為最新）
-            sp.playlist_change_details(pl["id"], description=description)
+            # 同步更新描述（確保描述始終為最新）；Spotify 回傳的描述是 HTML 跳脫過的
+            if html.unescape(pl.get("description") or "") != description:
+                sp.playlist_change_details(pl["id"], description=description)
             return pl["id"]
 
     # 未找到 → 建立新播放清單

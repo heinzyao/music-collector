@@ -16,3 +16,11 @@ def fixture_dir() -> Path:
 def load_fixture(name: str) -> str:
     """讀取 HTML fixture 檔案。"""
     return (FIXTURES_DIR / name).read_text(encoding="utf-8")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_playlist_cache(tmp_path, monkeypatch):
+    """歌單快取寫到暫存目錄，不碰真的 data/playlist_cache.json。"""
+    from music_collector import spotify
+
+    monkeypatch.setattr(spotify, "PLAYLIST_CACHE_PATH", tmp_path / "playlist_cache.json")
