@@ -154,7 +154,7 @@ CREATE TABLE tracks (
 
 - 以歐美樂評為主；不加華語或台灣來源。
 - 維持曲風多樣性，補現有來源缺的曲風，但不要完全貼著使用者的個人偏好選。
-- 獨立搖滾類來源（Stereogum、Pitchfork、The Line of Best Fit、DIY、Gorilla vs. Bear、The Quietus 等）是主體，須維持占每日新曲目約 50% 以上；新來源會壓低占比時，對它設每次執行的曲目上限。
+- 獨立搖滾類來源（Stereogum、Pitchfork、The Line of Best Fit、DIY、Gorilla vs. Bear、The Quietus 等）是主體，占每日新曲目約 30% 即可（2026-10-23 由 50% 下修）；新來源會讓占比跌破 30% 時，才對它設每次執行的曲目上限。
 - 不因採用率低就淘汰獨立搖滾類來源。
 - 新來源先量測（三頁內配對率 ≥ 60%、目測誤配 ≤ 1 首）才正式加入；未達標的記在 `tasks/todo.md`。
 
