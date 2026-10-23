@@ -43,6 +43,7 @@ from .notify import (
 from .scrapers import ALL_SCRAPERS
 from .scrapers.base import Track
 from .spotify import (
+    RateLimited,
     add_tracks_to_playlist,
     archive_previous_quarters,
     backfill_all_time,
@@ -129,6 +130,18 @@ def reset() -> None:
     run(dry_run=False)
 
 
+def _notify_rate_limited(e: RateLimited) -> None:
+    logger.error(f"Spotify 限流：{e}")
+    try:
+        send_error_notification(
+            "Spotify 限流",
+            str(e),
+            "不需重新授權。本次曲目未寫入 DB，恢復後下次排程會自動補上。",
+        )
+    except Exception as notify_error:
+        logger.warning(f"通知失敗：{notify_error}")
+
+
 def run(dry_run: bool = False) -> None:
     """主流程：擷取 → Spotify 搜尋 → All Time 鏡射 → 備份 → 季度歸檔 → 通知。"""
     logger.info("開始音樂蒐集...")
@@ -159,6 +172,9 @@ def run(dry_run: bool = False) -> None:
         sp = get_spotify_client()
         playlist_id = get_or_create_playlist(sp)
         playlist_url = f"https://open.spotify.com/playlist/{playlist_id}"
+    except RateLimited as e:
+        _notify_rate_limited(e)
+        return
     except Exception as e:
         logger.error(f"Spotify 認證或連線失敗：{e}")
         try:
@@ -171,33 +187,51 @@ def run(dry_run: bool = False) -> None:
             logger.warning(f"通知失敗：{notify_error}")
         return
 
-    conn = init_db()
     spotify_uris: list[str] = []
     not_found: list[Track] = []
     spotify_results: dict[tuple[str, str], str | None] = {}
+    searched: list[tuple[Track, str | None]] = []
+    search_limited: RateLimited | None = None
 
-    # 逐首搜尋 Spotify 並儲存結果
+    # 逐首搜尋 Spotify
     for track in new_tracks:
         try:
             uri = search_track(sp, track.artist, track.title)
-            spotify_results[(track.artist, track.title)] = uri
-            save_track(conn, track.artist, track.title, track.source, uri)
-            if uri:
-                spotify_uris.append(uri)
-                logger.info(f"  找到：{track.artist} — {track.title}")
-            else:
-                not_found.append(track)
-                logger.warning(f"  Spotify 未找到：{track.artist} — {track.title}")
+        except RateLimited as e:
+            # 後面的搜尋也只會 429；沒搜到的不寫 DB，下次排程仍是新曲目
+            logger.warning(f"  搜尋遇到限流，略過剩下 {len(new_tracks) - len(searched)} 首：{e}")
+            search_limited = e
+            break
         except Exception as e:
             logger.warning(f"  搜尋失敗：{track.artist} — {track.title}: {e}")
+            continue
+        searched.append((track, uri))
+        spotify_results[(track.artist, track.title)] = uri
+        if uri:
+            spotify_uris.append(uri)
+            logger.info(f"  找到：{track.artist} — {track.title}")
+        else:
+            not_found.append(track)
+            logger.warning(f"  Spotify 未找到：{track.artist} — {track.title}")
 
-    conn.close()
-
-    # 批次加入播放清單
+    # 批次加入播放清單。寫入成功後才存 DB：存了 DB 下次就不算新曲目，
+    # 若先存再被 429 擋下，這批歌就永遠進不了主歌單。
     if spotify_uris:
         # 實際加入數由 add_tracks_to_playlist() 自行記錄（去重後可能少於送入數）
-        add_tracks_to_playlist(sp, playlist_id, spotify_uris)
+        try:
+            add_tracks_to_playlist(sp, playlist_id, spotify_uris)
+        except RateLimited as e:
+            _notify_rate_limited(e)
+            return
 
+    conn = init_db()
+    for track, uri in searched:
+        save_track(conn, track.artist, track.title, track.source, uri)
+    conn.close()
+    if search_limited:
+        _notify_rate_limited(search_limited)
+
+    if spotify_uris:
         # 同步鏡射至 All Time 累積歌單。
         # 失敗不影響主流程：下次執行或 --backfill-all-time 都會補回。
         try:
@@ -210,7 +244,7 @@ def run(dry_run: bool = False) -> None:
 
     # 備份至季度 JSON
     try:
-        save_backup(new_tracks, spotify_results)
+        save_backup([t for t, _ in searched], spotify_results)
     except Exception as e:
         logger.warning(f"備份失敗：{e}")
 

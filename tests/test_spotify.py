@@ -217,3 +217,20 @@ def test_add_and_remove_items_batch_by_100():
     sizes = [len(c.kwargs["payload"]["items"]) for c in sp._delete.call_args_list]
     assert sizes == [100, 100, 50]
     assert sp._delete.call_args.args[0] == "playlists/main/items"
+
+
+def test_429_raises_immediately_with_retry_after():
+    """不能照 Retry-After 睡：新 app 曾被封 14.5 小時，排程會卡死。"""
+    from unittest.mock import patch
+
+    import pytest
+    from spotipy.exceptions import SpotifyException
+
+    from music_collector.spotify import RateLimited, _Spotify
+
+    sp = _Spotify(auth="token")
+    assert sp.retries == 0 and sp.status_forcelist == ()
+    err = SpotifyException(429, -1, "too many", headers={"Retry-After": "52000"})
+    with patch("spotipy.Spotify._internal_call", side_effect=err), pytest.raises(RateLimited) as ei:
+        sp.search(q="x")
+    assert ei.value.retry_after == 52000 and "14.4 小時" in str(ei.value)

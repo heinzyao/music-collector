@@ -5,11 +5,13 @@
 """
 
 import logging
+import math
 import re
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import spotipy
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
 from .config import (
@@ -31,6 +33,49 @@ logger = logging.getLogger(__name__)
 SCOPE = "playlist-modify-public playlist-modify-private playlist-read-private"
 
 
+class RateLimited(RuntimeError):
+    """Spotify 回 429。不睡 Retry-After（新 app 可能被封十幾小時，排程會卡死），直接讓呼叫端回報。"""
+
+    def __init__(self, retry_after: int | None):
+        self.retry_after = retry_after
+        if not retry_after:
+            msg = "Spotify 限流中，請稍後再試"
+        else:
+            at = datetime.now(timezone(timedelta(hours=8))) + timedelta(seconds=retry_after)
+            wait = (
+                f"{retry_after / 3600:.1f} 小時"
+                if retry_after >= 3600
+                else f"{math.ceil(retry_after / 60)} 分鐘"
+            )
+            msg = f"Spotify 限流中，約 {wait}後（{at:%m-%d %H:%M}）恢復"
+        super().__init__(msg)
+
+
+class _Spotify(spotipy.Spotify):
+    """不重試任何狀態碼（retries=0、空 status_forcelist），429 轉成 RateLimited。
+
+    與 music-recommender 同一套做法。空 forcelist 是必要的：429 在 forcelist 裡時
+    urllib3 會丟 RetryError，spotipy 轉成沒有 headers 的例外，就拿不到 Retry-After。
+    """
+
+    default_retry_codes = ()
+
+    def __init__(self, **kwargs):
+        super().__init__(retries=0, status_retries=0, **kwargs)
+
+    def _internal_call(self, *args, **kwargs):
+        try:
+            return super()._internal_call(*args, **kwargs)
+        except SpotifyException as e:
+            if e.http_status != 429:
+                raise
+            try:
+                retry_after = int((e.headers or {}).get("Retry-After"))
+            except (TypeError, ValueError):
+                retry_after = None
+            raise RateLimited(retry_after) from e
+
+
 def get_spotify_client() -> spotipy.Spotify:
     """建立並回傳已認證的 Spotify 客戶端。"""
     if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
@@ -47,7 +92,7 @@ def get_spotify_client() -> spotipy.Spotify:
         scope=SCOPE,
         cache_path=str(SPOTIFY_CACHE_PATH),
     )
-    return spotipy.Spotify(auth_manager=auth_manager)
+    return _Spotify(auth_manager=auth_manager)
 
 
 # ── 搜尋與驗證 ──
