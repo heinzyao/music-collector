@@ -1,13 +1,15 @@
-"""匯出模組：將季度備份匯出為 CSV（適用於各家線上歌單轉換工具）。"""
+"""匯出模組：將季度備份匯出為 CSV（適用於各家線上歌單轉換工具），
+以及把近期樂評曲目匯出成 critics.json 上傳 GCS（供雲端 music-recommender 使用）。"""
 
 import csv
 import json
 import logging
 import re
-from datetime import datetime
+import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
-from .config import BACKUP_DIR
+from .config import BACKUP_DIR, CRITICS_GCS_URI
 
 logger = logging.getLogger(__name__)
 
@@ -126,3 +128,80 @@ def _show_available_backups() -> None:
         print(f"可用備份：{available}")
     else:
         print("尚無備份資料。")
+
+
+CRITICS_DAYS = 90
+CRITICS_LIMIT = 300
+
+
+def build_critics(conn: sqlite3.Connection) -> dict:
+    """取最近 90 天、有 Spotify URI 的曲目，新到舊最多 300 筆。
+
+    added_at 是 SQLite CURRENT_TIMESTAMP（UTC），所以篩選也交給 SQLite 的 'now' 比較，
+    輸出時補上 Z 標示 UTC。
+    DB 去重鍵 (artist, title) 與 URI 不是一對一（見 AGENTS.md「播放清單去重」），
+    同一 URI 只留最新一筆，再截上限。
+    """
+    rows = conn.execute(
+        "SELECT artist, title, source, spotify_uri, added_at FROM tracks "
+        "WHERE spotify_uri IS NOT NULL AND spotify_uri != '' "
+        "AND added_at >= datetime('now', ?) "
+        "ORDER BY added_at DESC, id DESC",
+        (f"-{CRITICS_DAYS} days",),
+    ).fetchall()
+    latest = {}
+    for row in rows:
+        latest.setdefault(row[3], row)
+    tracks = [
+        {
+            "artist": artist,
+            "title": title,
+            "source": source,
+            "spotify_uri": uri,
+            "added_at": str(added_at).replace(" ", "T") + "Z",
+        }
+        for artist, title, source, uri, added_at in list(latest.values())[:CRITICS_LIMIT]
+    ]
+    return {
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "tracks": tracks,
+    }
+
+
+def _upload_gcs(gcs_uri: str, data: bytes) -> None:
+    """以本機 ADC 上傳到 gs://bucket/path。"""
+    from google.cloud import storage
+
+    bucket_name, _, blob_name = gcs_uri.removeprefix("gs://").partition("/")
+    if not gcs_uri.startswith("gs://") or not bucket_name or not blob_name:
+        raise ValueError(f"CRITICS_GCS_URI 格式應為 gs://bucket/path：{gcs_uri}")
+    blob = storage.Client().bucket(bucket_name).blob(blob_name)
+    blob.upload_from_string(data, content_type="application/json")
+
+
+def export_critics(out: Path | None = None) -> None:
+    """匯出 critics.json。
+
+    指定 out 時只寫本機檔案、不上傳；否則在設了 CRITICS_GCS_URI 時上傳 GCS，沒設就跳過。
+    任何失敗只記警告，不拋例外（每日流程與通知不受影響）。
+    """
+    if out is None and not CRITICS_GCS_URI:
+        logger.info("未設定 CRITICS_GCS_URI，略過 critics.json 匯出")
+        return
+    try:
+        from .db import init_db
+
+        conn = init_db()
+        try:
+            payload = build_critics(conn)
+        finally:
+            conn.close()
+        data = json.dumps(payload, ensure_ascii=False, indent=1).encode("utf-8")
+        if out is not None:
+            out.write_bytes(data)
+            logger.info(f"已輸出 {len(payload['tracks'])} 首至 {out}")
+        else:
+            _upload_gcs(CRITICS_GCS_URI, data)
+            logger.info(f"已上傳 {len(payload['tracks'])} 首至 {CRITICS_GCS_URI}")
+    except Exception as e:
+        logger.warning(f"critics.json 匯出失敗：{e}")

@@ -112,6 +112,7 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1              # standard CSV format
 ./run.sh --export Q1 --all        # include items ignored by Spotify
 ./run.sh --export-spotify-url     # output Spotify playlist URLs and track counts
+./run.sh --export-critics         # upload last 90 days of matched tracks (≤300) as JSON to CRITICS_GCS_URI (optional, via gcloud ADC); --out PATH writes locally only
 
 # Backfill the All Time cumulative playlist (main + every quarterly archive, deduped)
 ./run.sh --backfill-all-time
@@ -406,6 +407,7 @@ PYTHONPATH=src uv run python auth.py
 ./run.sh --export Q1              # CSV 格式
 ./run.sh --export Q1 --all        # 包含 Spotify 未找到的曲目
 ./run.sh --export-spotify-url     # 輸出 Spotify 歌單連結與曲目數
+./run.sh --export-critics         # 最近 90 天已配對曲目（≤300 筆）匯出 JSON 上傳至 CRITICS_GCS_URI（選填，走 gcloud ADC）；--out PATH 只寫本機
 
 # 回填 All Time 累積歌單（主歌單 + 所有季度歸檔，去重）
 ./run.sh --backfill-all-time

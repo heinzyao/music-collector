@@ -9,15 +9,17 @@
     python -m music_collector --backup Q1  # 顯示指定季度備份內容
     python -m music_collector --export Q1  # 匯出 Q1 為 CSV
     python -m music_collector --backfill-all-time  # 回填 All Time 累積歌單
+    python -m music_collector --export-critics     # 匯出 critics.json 並上傳 GCS
     python -m music_collector --reset      # 清除歌單與資料庫，重新蒐集
 """
 
 import argparse
 import asyncio
 import logging
+from pathlib import Path
 
 from .backup import list_backups, save_backup, show_backup
-from .export import export_csv, export_spotify_url
+from .export import export_critics, export_csv, export_spotify_url
 from .stats import show_stats
 from .config import DB_PATH
 from .db import (
@@ -141,6 +143,7 @@ def run(dry_run: bool = False) -> None:
                 send_no_new_tracks_notification()
             except Exception as e:
                 logger.warning(f"通知失敗：{e}")
+            export_critics()
             return
 
     # 乾跑模式：僅列出擷取結果，不操作 Spotify / 不備份 / 不通知
@@ -247,6 +250,9 @@ def run(dry_run: bool = False) -> None:
         )
     except Exception as e:
         logger.warning(f"通知失敗：{e}")
+
+    # 樂評曲目匯出至 GCS（未設 CRITICS_GCS_URI 時跳過；失敗只記警告、不通知）
+    export_critics()
 
     logger.info("完成。")
 
@@ -366,10 +372,25 @@ def main() -> None:
         action="store_true",
         help="顯示各擷取器來源的健康狀態報告",
     )
+    parser.add_argument(
+        "--export-critics",
+        action="store_true",
+        help="只匯出最近 90 天樂評曲目為 critics.json 並上傳 GCS（需 CRITICS_GCS_URI）",
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        metavar="PATH",
+        help="搭配 --export-critics：只寫入本機檔案，不上傳",
+    )
     args = parser.parse_args()
+    if args.out and not args.export_critics:
+        parser.error("--out 需搭配 --export-critics")
 
     if args.stats is not None:
         show_stats(args.stats if args.stats else None)
+    elif args.export_critics:
+        export_critics(args.out)
     elif args.export_spotify_url:
         export_spotify_url()
     elif args.export:

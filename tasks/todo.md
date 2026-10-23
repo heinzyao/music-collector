@@ -1,3 +1,35 @@
+# critics.json 匯出至 GCS（供雲端 music-recommender）
+
+## 背景
+
+契約：`~/.hermes/cache/scratch/music_deploy_contract.md`。每天跑完後把最近 90 天樂評曲目上傳 `gs://music-recommender-data/critics.json`。bucket 由 Hermes 建立，`.env` 的 `CRITICS_GCS_URI` 也由 Hermes 設定。
+
+## 清單
+
+- [x] `export.build_critics()`：90 天、spotify_uri 非空、新到舊、≤ 300 筆
+- [x] `export.export_critics(out)`：沒設 `CRITICS_GCS_URI` 跳過；`--out` 只寫本機；失敗只記警告、不通知
+- [x] 掛在 `run()` 通知之後（含「今日無新曲目」分支）；`--dry-run` 不上傳；CLI `--export-critics [--out PATH]`
+- [x] 依賴 `google-cloud-storage`（理由見下）
+- [x] `.env.example`、README 中英、AGENTS.md
+- [x] 測試 `tests/test_export_critics.py`（mock `google.cloud.storage`）
+- [x] pytest、ruff、實跑（未設環境變數略過、`--out` 輸出）
+- [x] Opus 第二意見
+
+## 決策
+
+- **google-cloud-storage 而非 `gcloud storage cp`**：launchd plist 的 PATH 只有 `/usr/local/bin:/usr/bin:/bin:~/.local/bin`，gcloud 在 `/opt/homebrew/share/google-cloud-sdk/bin`，排程下會找不到；且 gcloud CLI 用的是 `gcloud auth` 帳號而非 ADC。套件比照 diffords 做法（lazy import、`storage.Client()` 走 ADC）。
+- `added_at` 是 SQLite `CURRENT_TIMESTAMP`（UTC），篩選用 `datetime('now', '-90 days')` 比較，輸出補 `Z`。
+- 實測：90 天內符合的有 885 首，300 筆上限只涵蓋約 30 天（最舊 2026-09-23）；Stereogum 156、Rolling Stone 91 占 82%。照規格不改，若 recommender 要更平均再談。
+
+## 審查（Opus 第二意見）
+
+- ✅ 採納：同一 `spotify_uri` 會重複（DB 去重鍵與 URI 非一對一；實測 90 天內 885 筆只有 858 個不同 URI）→ 依 URI 保留最新一筆後再截 300，補測試
+- ✅ 採納：單獨下 `--out` 會落到 `run()` 跑完整每日流程 → `parser.error`
+- ✅ 採納：todo.md 被整份覆寫 → 還原舊紀錄，新任務放最上方
+- ❌ 駁回：`added_at` 非 `CURRENT_TIMESTAMP` 格式會誤判。`tracks` 只有 `save_track()` 寫入且不指定 `added_at`（備份的 `added_at` 是另一份 JSON，不回寫 DB）；實測全表 0 筆格式不符
+
+---
+
 # 修復 stale 來源（NME、Resident Advisor）→ 改以 When We Dip 替代
 
 ## 背景

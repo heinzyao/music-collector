@@ -45,6 +45,9 @@ LINE_CHANNEL_ID = os.environ.get("LINE_CHANNEL_ID", "")
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 LINE_USER_ID = os.environ.get("LINE_USER_ID", "")
 
+# ── 雲端 music-recommender 樂評匯出（選用，未設定則不上傳）──
+CRITICS_GCS_URI = os.environ.get("CRITICS_GCS_URI", "")
+
 # ── 備份設定 ──
 BACKUP_DIR = DATA_DIR / "backups"
 

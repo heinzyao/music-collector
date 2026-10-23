@@ -35,6 +35,11 @@ uv sync --extra test
 # 輸出主歌單與 All Time 歌單的 Spotify 連結與曲目數
 ./run.sh --export-spotify-url
 
+# 匯出最近 90 天已配對曲目（≤300 筆，新到舊）為 critics.json 上傳 GCS，供雲端 music-recommender 使用；
+# 每日流程在通知後也會呼叫。只在設了 CRITICS_GCS_URI 時上傳（本機 gcloud ADC），失敗只記警告；--out 只寫本機
+./run.sh --export-critics
+./run.sh --export-critics --out /tmp/critics.json
+
 # 各擷取器來源的健康狀態報告
 ./run.sh --health
 
