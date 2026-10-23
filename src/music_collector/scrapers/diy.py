@@ -4,7 +4,7 @@
 擷取方式：解析 RSS feed，過濾 News 分類。
 標題格式：「Artist shares new single 'Title'」（藝人在前、曲名在引號內）。
 
-與 NME/SPIN 不同，DIY 的 RSS 把藝人名放進 category tag，因此不需要靠動詞邊界
+與 SPIN 不同，DIY 的 RSS 把藝人名放進 category tag，因此不需要靠動詞邊界
 猜測藝人名在哪裡結束 —— 直接拿「標題開頭吻合的那個 tag」即可，既準確又不會壞。
 """
 

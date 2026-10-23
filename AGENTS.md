@@ -2,12 +2,12 @@
 
 ## 專案概述
 
-自動從 15 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
+自動從 14 個音樂評論網站蒐集推薦曲目，同步至 Spotify 播放清單。Spotify 是唯一目標平台。
 
 ## 開發指令
 
 ```bash
-# 安裝依賴（含 Playwright，Resident Advisor 需要）
+# 安裝依賴（含 Playwright；目前沒有擷取器使用，`_get_rendered()` 留作備用）
 uv sync --extra browser
 
 # 安裝 Playwright Chromium 瀏覽器（uv sync 後執行；playwright 升版後需重跑，
@@ -75,7 +75,7 @@ PYTHONPATH=src uv run pytest tests/test_spotify.py::test_mirror_to_all_time_skip
 ## 架構要點
 
 - `src/music_collector/scrapers/base.py` — `BaseScraper` 抽象類別、`Track` 資料模型、`_get_rendered()` Playwright 方法
-- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（15 個擷取器）
+- `src/music_collector/scrapers/__init__.py` — `ALL_SCRAPERS` 註冊表（14 個擷取器）
 - `src/music_collector/health.py` — `record_scrape_result()`、`get_unhealthy_sources()`、`get_health_report()`；`stale` = 超過 `SOURCE_STALE_DAYS` 天沒有新曲目進 DB（tracks.source 只記首個收錄來源，被搶先收錄也會讓來源看起來停更）
 - `src/music_collector/spotify.py` — Spotify 整合（搜尋驗證、播放清單管理、季度歸檔、All Time 累積歌單）
 - `src/music_collector/db.py` — SQLite 去重，以 `(artist, title)` 為唯一鍵
@@ -127,24 +127,23 @@ CREATE TABLE tracks (
 |--------|------|----------|
 | Pitchfork | HTML | `div[class*='SummaryItemWrapper']` 容器，`h3` 取曲名，`div sub-hed` 取藝人 |
 | Stereogum | RSS | feedparser + 分類過濾 + 多格式標題解析 |
-| NME | HTML | `/reviews/track` 頁面，敘述性標題解析（所有格 + 動詞短語分離） |
 | SPIN | RSS | `/new-music/feed/`，引號取曲名 + category tag 取藝人（tag 可在標題任一處） |
 | Consequence | HTML | 引號提取曲名 + 文章 URL slug 定位藝人名（動詞清單為備選） |
 | Line of Best Fit | HTML | 文章 URL slug 定位藝人名，備選為所有格與大小寫啟發式 |
 | Rolling Stone | HTML | 二階段：索引頁多頁掃描（≤3 頁）→ 文章頁以段首錨定 regex 取「Artist, “Title”」 |
 | Slant | HTML | 三種標題格式（藝人在引號前／後／帶所有格）+ 動詞邊界 + JS/Cloudflare 偵測 |
-| Resident Advisor | HTML | Next.js 偵測 + Playwright fallback |
 | Gorilla vs. Bear | RSS | feedparser + mp3/video/on-blast 分類過濾 |
 | Bandcamp Daily | RSS | 只取 Album of the Day 分類 + 成對引號解析「Artist, “Album”」 |
 | The Quietus | RSS | feedparser + Reviews 分類過濾 |
 | DIY | RSS | News 分類 + category tag 取藝人 + 引號取曲名（專輯名跳過） |
 | Aquarium Drunkard | RSS | ` :: ` 分隔 + 專欄黑名單 + 藝人須對得上 tag + 括號過濾現場錄音 |
 | SoulBounce | RSS | 跳過 Events／Reviews／Relax in Paradise（訃聞）；藝人取標題開頭吻合的 tag（大小寫、重音、撇號摺疊後比對）；引號取曲名，比照 DIY 雙引號規則跳過專輯 |
+| When We Dip | RSS | 只收 Reviews／Premieres 分類；去掉 `Premiere:` 前綴後，藝人取標題開頭吻合的 tag（沿用 SoulBounce 摺疊比對）；引號取曲名，引號前有 album／EP／mix 或引號後緊接 EP／VA／Sampler 時跳過 |
 
 ### 引號處理注意事項
 
 - Consequence：不可將直引號 `'` 放入引號匹配字元集，否則所有格會被誤判為開引號
-- NME / SPIN：使用 `\u2019(?![a-zA-Z])` negative lookahead 避免將縮寫撇號（如 Where's）誤判為結尾引號
+- SPIN：使用 `\u2019(?![a-zA-Z])` negative lookahead 避免將縮寫撇號（如 Where's）誤判為結尾引號
 - SPIN：引號內曲名需 `rstrip(".,;:!?")` 移除尾端標點
 - Slant：曲名需 `rstrip(",;:")` —— 美式排版把逗號放在引號**內**（`‘Hazel Eyes,’`）
 - Slant：跳過詞（film/tv/best of…）只能比對引號**外**的文字，否則 `‘Music, Fashion, Film’` 這類曲名會被誤殺
@@ -158,6 +157,11 @@ CREATE TABLE tracks (
 - 獨立搖滾類來源（Stereogum、Pitchfork、The Line of Best Fit、DIY、Gorilla vs. Bear、The Quietus 等）是主體，須維持占每日新曲目約 50% 以上；新來源會壓低占比時，對它設每次執行的曲目上限。
 - 不因採用率低就淘汰獨立搖滾類來源。
 - 新來源先量測（三頁內配對率 ≥ 60%、目測誤配 ≤ 1 首）才正式加入；未達標的記在 `tasks/todo.md`。
+
+## 已移除的來源
+
+- **NME**（2026-10-23）：`/reviews/track` 最新一篇停在 2026-08-18。新聞 RSS 只給 10 篇、`?paged=` 沒作用、tag 只有曲風；近 17 天音樂新聞裡真正的新歌消息約 8 篇，多是主流大咖（與 Rolling Stone 重疊）
+- **Resident Advisor**（2026-10-23）：`ra.co/graphql` 顯示所有類型評論最新一篇是 2026-07-28（單曲 07-25），評論區塊已停；`/tracks` 只是 301 轉到 `/reviews/singles`
 
 ## 新增擷取器
 

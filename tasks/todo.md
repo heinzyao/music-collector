@@ -1,3 +1,73 @@
+# 修復 stale 來源（NME、Resident Advisor）→ 改以 When We Dip 替代
+
+## 背景
+
+`--health` 標出 NME（60 天）與 Resident Advisor（81 天）stale。先查根因，修不好就換電子類來源。
+門檻同「來源選擇原則」：配對率 ≥ 60%、目測誤配 ≤ 1 首。
+
+## 清單
+
+- [x] NME 根因 → 無法修復，移除
+- [x] RA 根因 → 無法修復，移除
+- [x] 電子類替代來源初篩 + 量測（`~/.hermes/cache/scratch/mc_measure_electronic.py`，唯讀：只呼叫 Spotify search/track）
+- [x] When We Dip 擷取器 + 測試（RSS 內嵌 fixture，不打網路）
+- [x] 刪除 nme.py／residentadvisor.py 與其測試、fixture（git 歷史保留）
+- [x] `scrapers/__init__.py`、README 中英、AGENTS.md（表格、已移除來源）、`config.py` 歌單描述（15 → 14 家，218 字元）
+- [x] pytest、ruff、dry-run、Opus 第二意見
+
+## 根因（2026-10-23 查證）
+
+- **NME**：擷取器沒壞，是 NME 停更 track review。`https://www.nme.com/reviews/track` 頁面最新日期 2026-08-18，其後依序是 04-08、02-19…
+  - 新聞 RSS `https://www.nme.com/news/music/feed` 不可行：固定只給 10 篇（約 1 天），`?paged=2/3` 回傳同一批；category 只有 Music News／曲風，**沒有藝人 tag**，DIY 的 tag 比對法用不上
+  - 當下 10 篇裡 0 篇是新歌消息（Mercury 獎、巡演、書、影片、電視）；用引號抓會把巡演名 ‘Dopamine Chamber’、書名 ‘New Feeling’、節目 ‘Chicken Shop Date’ 當曲名
+  - `post-sitemap306.xml` 近 17 天 164 篇音樂新聞，slug 含 new-single／shares 等只有 13 篇、真正的新歌約 8 篇（約 0.5 首/日），且是 U2、Rolling Stones、Harry Styles 這類主流，與 Rolling Stone 重疊。page 1 + RSS 樣本 ≤ 1 首，無法達門檻
+- **Resident Advisor**：`/tracks` 是 301 轉到 `/reviews/singles`，所以 HTML 相同，不是改版。資料其實在 SSR 的 `__NEXT_DATA__`（不用 Playwright）
+  - `https://ra.co/graphql` `reviews(limit:10)`：**所有類型**評論最新一篇是 2026-07-28（Picture - Uuuuuuuu，id 36364），單曲最新 2026-07-25（Fauzia），2026 全年單曲評論只有 6 篇；專輯評論也停在 07-28
+  - 舊擷取器每天抓到的是頁面上的舊評論，全被 DB 去重擋掉。RA 沒有其他「推薦單曲」區塊（News／Podcast／Events 不是曲目）
+
+## 替代來源量測（2026-10-23）
+
+| 來源 | 文章 | 曲目 | 配對 | 配對率 | 估計日產 | 結果 |
+|------|------|------|------|--------|----------|------|
+| When We Dip | 30（10 天，3 頁） | 15 | 14 | 93% | 1.5 首（配對後 1.4） | ✅ 加入 |
+| Inverted Audio（Premiere） | 30（123 天，3 頁） | 10 | 7 | 70% | 0.08 首 | ❌ 達標但量太少，不值得一個擷取器 |
+| Attack Magazine | 10 | 0 | — | — | — | ❌ 製作教學、器材、專訪 |
+| Crack Magazine | 99 | 0 | — | — | — | ❌ 只剩活動／音樂節新聞 |
+| Decoded Magazine | 20 | — | — | — | — | ❌ Music Premieres 多數無引號（「X drops Godsexy via Selador」），其餘為新聞／器材 |
+| FACT（factmag.com） | 30 | 0 | — | — | — | ❌ 只剩 180 Studios 展覽，最新 2026-09-30 |
+| Stamp the Wax | 10 | — | — | — | — | ❌ 最新一篇 2023-05 |
+| Electronic Beats、The Vinyl Factory | — | — | — | — | — | ❌ feed 404 |
+| Pitchfork track reviews | — | — | — | — | — | 不分曲風，已有 Pitchfork 擷取器 |
+| Bandcamp Daily | — | — | — | — | — | feed 沒有電子專欄，且已有擷取器 |
+
+- When We Dip 14 首配對目測全部正確，0 誤配（Simon Vuarambon — Metro → Josh Wink, Simon Vuarambon「Metro - Simon Vuarambon Rework」、Matthew Sona — Aldilá → Artic White, Matthew Sona「Aldilá - Matthew Sona Remix」也正確）
+- 唯一未配對是誤解析：The Afters — ‘Robot84: Finding The Rhythm Again’（平台上線新聞，不是曲目；沒配到所以不會進歌單）
+- 正確略過：‘Malone’ EP、‘Itkar’ EP、‘Summer’s End Sampler’ VA、album ‘CONTACTO’、Interviews／Events／Podcasts
+- 漏抓（可接受）：標題以「Label boss Peter Makto」開頭對不上 tag
+
+## 占比估算
+
+DB 最近 30 天新曲目 373 首。NME、RA 這 30 天貢獻 0 首，移除不影響分母。
+獨立搖滾類（Stereogum 165、The Quietus 27、DIY 11、The Line of Best Fit 8、Pitchfork 2、Gorilla vs. Bear 2）= 215 首 = **57.6%**。
+
+加入 When We Dip（1.5 首/日 × 30 = 45 首，以未去重的解析數為上界）：215 / 418 = **51.4%**，仍 ≥ 50%，比照 SoulBounce **不設曲目上限**
+（SoulBounce 預估 22 首、實際 30 天 7 首，上界估算偏高）。餘裕不大：若 `--stats sources` 顯示獨立搖滾跌破 50%，再對 When We Dip 設每次上限 1 首（≈ 53%）。
+
+## Review
+
+- dry-run：When We Dip 抓到 2 首（Jon Who — Glass Houses、M.O.S. — Inka），皆為新曲目；`data/tracks.db` md5 前後一致
+- pytest 164 passed、ruff 乾淨
+- Playwright 已無擷取器使用；`_get_rendered()`、`ENABLE_PLAYWRIGHT`、`--extra browser` 先保留（拆掉要動 run.sh／pyproject／文件，範圍外）
+
+### Opus 第二意見
+
+- 採納：`ALBUM_BEFORE` 拿掉 `mix`（「a hypnotic mix of house on ‘Track’」會被誤殺；DJ mix 已由 Podcasts 分類排除）；補測試
+- 採納：README 中英目錄樹補齊 diy.py、aquariumdrunkard.py、soulbounce.py（原本就缺）
+- 駁回：分類 tag（House、News）參與藝人比對 —— `_match_artist_tag` 取最長吻合且檢查字界
+- 駁回：移除的來源會一直被標 stale —— health 只檢查 `ALL_SCRAPERS` 裡的名稱
+- 不改（既有模式）：`feedparser.parse(URL)` 無逾時、`entries[:MAX]` 在過濾前切 —— 所有 RSS 擷取器皆如此
+- 不改（既有慣例）：todo 內的 scratch 腳本路徑，前幾節都這樣記
+
 # Spotify 改走 /playlists/{id}/items（相容 2026 新 app）
 
 ## 背景

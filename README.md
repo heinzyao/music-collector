@@ -13,7 +13,7 @@ Automatically collects "Best New Track" recommendations from major global music 
 The following workflow is executed automatically every week:
 
 ```text
-13 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Mirror to All Time Playlist → LINE Notification
+14 Sources → Extract Tracks → Match with Spotify → Add to Playlist → Mirror to All Time Playlist → LINE Notification
 ```
 
 #### Core Features
@@ -36,17 +36,16 @@ The following workflow is executed automatically every week:
 | Stereogum | RSS | `stereogum.com/feed/` Filtered by singles category | Stable |
 | The Line of Best Fit | HTML | Tracks parsed from `/tracks` path | Stable |
 | Consequence | HTML | Filtered through Weekly Highlights | Stable |
-| NME | HTML | Targeted by individual `/reviews/track` pages | Stable |
 | SPIN | RSS | Parses the `/new-music/` feed, artist from category tags | Stable |
 | Rolling Stone | HTML | Combines index pages along with track features | Stable |
 | Slant Magazine | HTML | `/music/` track review pages (includes JS verification) | Stable |
-| Resident Advisor | HTML | Queries `ra.co/reviews/singles` (requires Playwright fallback) | JS rendered |
 | Gorilla vs. Bear | RSS | Retrieves `gorillavsbear.net/feed/` via mp3/video filtering | Stable |
 | Bandcamp Daily | RSS | Uses `daily.bandcamp.com/feed` pointing to Album of the Day | Stable |
 | The Quietus | RSS | Parses `thequietus.com/feed` via Reviews designation | Stable |
 | DIY | RSS | News category, artist from tags, single name from quotes | Stable |
 | Aquarium Drunkard | RSS | ` :: ` separator, column blacklist, artist must match a tag | Stable |
 | SoulBounce | RSS | R&B/soul; artist from tags (case/accent-folded), single name from quotes | Stable |
+| When We Dip | RSS | Electronic (house/techno); Reviews + Premieres, artist from tags, skips EPs/compilations | Stable |
 
 ### Quick Start
 
@@ -187,27 +186,28 @@ music-collector/
 │       ├── notify.py               # LINE notifications
 │       ├── stats.py                # Source contribution & overlap analytics
 │       └── scrapers/
-│           ├── __init__.py         # Scraper registry (13 modules)
+│           ├── __init__.py         # Scraper registry (14 modules)
 │           ├── base.py             # BaseScraper + Track model + Playwright support
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
 │           ├── lineofbestfit.py    # The Line of Best Fit (HTML)
 │           ├── consequence.py      # Consequence of Sound (HTML)
-│           ├── nme.py              # NME (HTML)
 │           ├── spin.py             # SPIN (RSS)
 │           ├── rollingstone.py     # Rolling Stone (HTML)
 │           ├── slant.py            # Slant Magazine (HTML + JS detection)
-│           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
 │           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
 │           ├── bandcamp.py         # Bandcamp Daily (RSS)
 │           ├── quietus.py          # The Quietus (RSS)
-│           └── soulbounce.py       # SoulBounce (RSS)
+│           ├── diy.py              # DIY (RSS)
+│           ├── aquariumdrunkard.py # Aquarium Drunkard (RSS)
+│           ├── soulbounce.py       # SoulBounce (RSS)
+│           └── whenwedip.py        # When We Dip (RSS)
 ├── tests/
 │   ├── conftest.py                 # Global pytest fixtures
 │   ├── test_spotify.py             # Spotify search & All Time playlist tests
 │   ├── test_notify.py              # Notification tests
 │   ├── fixtures/html/              # HTML mock fixtures
-│   └── scrapers/                   # Per-scraper unit tests (13 modules)
+│   └── scrapers/                   # Per-scraper unit tests (14 modules)
 └── data/                           # Local runtime data (git-ignored)
     ├── tracks.db                   # SQLite database
     ├── collector.log               # Scheduled run log
@@ -310,7 +310,7 @@ MIT License
 每天自動執行以下流程：
 
 ```text
-15 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
+14 個來源 → 擷取曲目 → Spotify 比對 → 加入歌單 → 鏡射至 All Time 累積歌單 → LINE 通知
 ```
 
 #### 核心功能
@@ -333,17 +333,16 @@ MIT License
 | Stereogum | RSS | `stereogum.com/feed/` 過濾單曲相關分類 | 穩定 |
 | The Line of Best Fit | HTML | `/tracks` 頁面，解析每日推薦 | 穩定 |
 | Consequence | HTML | WordPress 分類頁，週度精選 | 穩定 |
-| NME | HTML | `/reviews/track` 個別曲目評論頁 | 穩定 |
 | SPIN | RSS | `/new-music/` feed，藝人取自 category tag | 穩定 |
 | Rolling Stone | HTML | 音樂新聞與特輯索引頁 + 文章頁 | 穩定 |
 | Slant Magazine | HTML | `/music/` 樂評頁（含 JS 偵測） | 穩定 |
-| Resident Advisor | HTML | `ra.co/reviews/singles`（含 Playwright fallback） | JS 渲染 |
 | Gorilla vs. Bear | RSS | `gorillavsbear.net/feed/` 過濾 mp3/video 分類 | 穩定 |
 | Bandcamp Daily | RSS | `daily.bandcamp.com/feed` Album of the Day | 穩定 |
 | The Quietus | RSS | `thequietus.com/feed` 過濾 Reviews 分類 | 穩定 |
 | DIY | RSS | News 分類，tag 取藝人、引號取曲名 | 穩定 |
 | Aquarium Drunkard | RSS | ` :: ` 分隔，專欄黑名單 + tag 驗證 | 穩定 |
 | SoulBounce | RSS | R&B／soul，tag 取藝人（大小寫與重音正規化）、引號取曲名 | 穩定 |
+| When We Dip | RSS | 電子樂（house／techno），Reviews＋Premieres，tag 取藝人、跳過 EP／合輯 | 穩定 |
 
 ### 快速開始
 
@@ -481,26 +480,28 @@ music-collector/
 │       ├── notify.py               # LINE 通知
 │       ├── stats.py                # 資料分析模組
 │       └── scrapers/
-│           ├── __init__.py         # 擷取器註冊表（15 個）
+│           ├── __init__.py         # 擷取器註冊表（14 個）
 │           ├── base.py             # 基礎擷取器（含 Playwright）
 │           ├── pitchfork.py        # Pitchfork (HTML)
 │           ├── stereogum.py        # Stereogum (RSS)
 │           ├── lineofbestfit.py    # The Line of Best Fit (HTML)
 │           ├── consequence.py      # Consequence of Sound (HTML)
-│           ├── nme.py              # NME (HTML)
 │           ├── spin.py             # SPIN (RSS)
 │           ├── rollingstone.py     # Rolling Stone (HTML)
 │           ├── slant.py            # Slant Magazine (HTML + JS 偵測)
-│           ├── residentadvisor.py  # Resident Advisor (HTML + Playwright)
 │           ├── gorillavsbear.py    # Gorilla vs. Bear (RSS)
 │           ├── bandcamp.py         # Bandcamp Daily (RSS)
-│           └── quietus.py          # The Quietus (RSS)
+│           ├── quietus.py          # The Quietus (RSS)
+│           ├── diy.py              # DIY (RSS)
+│           ├── aquariumdrunkard.py # Aquarium Drunkard (RSS)
+│           ├── soulbounce.py       # SoulBounce (RSS)
+│           └── whenwedip.py        # When We Dip (RSS)
 ├── tests/
 │   ├── conftest.py                 # 全域 fixtures
 │   ├── test_spotify.py             # Spotify 搜尋與 All Time 歌單測試
 │   ├── test_notify.py              # 通知模組測試
 │   ├── fixtures/html/              # HTML fixture 檔案
-│   └── scrapers/                   # 擷取器測試（15 個）
+│   └── scrapers/                   # 擷取器測試（14 個）
 └── data/                           # 本地執行資料（git-ignored）
     ├── tracks.db                   # SQLite 資料庫
     ├── collector.log               # 排程執行日誌
