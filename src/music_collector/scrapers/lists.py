@@ -13,7 +13,7 @@ October 2026」、「… So Far」），再逐項解析文章的 h2/h3 標題。
   DIY            20. Westside Cowboy — Shells（無引號，只在有名次編號時收）
 
 只收單曲榜：標題沒提到 songs/tracks/singles 的專輯榜一律不看（使用者 2026-11-05 指示）。
-索引頁混著歷年舊榜，所以只收標題年份是今年的，1 月時另收去年的（年終榜常跨年才出）。
+索引頁混著歷年舊榜，只收標題年份是今年的（使用者 2026-11-05 指示，跨年才出的去年年終榜也不收）。
 """
 
 import logging
@@ -48,15 +48,13 @@ _DASHED = re.compile(r"^(?P<artist>.{1,100}?)\s+[–—-]\s+(?P<title>.{1,150})$
 
 
 def is_list_title(title: str, today: date | None = None) -> bool:
-    """標題是不是今年（1 月含去年）的單曲榜。"""
+    """標題是不是今年的單曲榜（使用者 2026-11-05 指示只收今年度）。"""
     today = today or date.today()
     if not (_SONG_WORDS.search(title) and _LIST_WORDS.search(title)):
         return False
     if _SKIP_WORDS.search(title):
         return False
-    years = {int(y) for y in _YEAR.findall(title)}
-    ok = {today.year} | ({today.year - 1} if today.month == 1 else set())
-    return bool(years & ok)
+    return str(today.year) in _YEAR.findall(title)
 
 
 def parse_entry(text: str) -> tuple[str, str] | None:

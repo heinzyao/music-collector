@@ -153,7 +153,7 @@ CREATE TABLE tracks (
 - 目前有設：Pitchfork、Stereogum、Consequence、Rolling Stone、The Quietus（月榜＋年終榜）、DIY。
   查過沒有單曲榜：SPIN（Now Hear This 只有藝人名）、Consequence 月榜（專輯）、Bandcamp 月榜（專輯）、
   Line of Best Fit／Aquarium Drunkard（只有專輯年終榜）、Slant／GvB／SoulBounce／When We Dip（查無）
-- 標題要同時有 songs/tracks/singles 與 best/top/of the year|month，且年份是今年（1 月另收去年）；週榜不收
+- 標題要同時有 songs/tracks/singles 與 best/top/of the year|month，且年份是今年（跨年才出的去年年終榜也不收，使用者 2026-11-05 指示）；週榜不收
 - 每則項目解析 h2/h3，只留數量最多的同一組標題樣式（擋側欄新聞）；The Quietus 月榜從 `TRACKS` 標題之後取；
   分頁跟 `<link rel=next>` 或 Rolling Stone 頁內 JSON 的 `nextPageLink`（一頁 50 筆）
 

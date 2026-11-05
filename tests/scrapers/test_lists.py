@@ -40,7 +40,7 @@ def test_parse_entry(text, expected):
         ("The 5 Best Songs Of The Week", date(2026, 11, 1), False),      # 週榜不在範圍
         ("The 200 Best Songs of the 2020s", date(2026, 11, 1), False),
         ("The Best Songs of 2016", date(2026, 11, 1), False),            # 索引頁上的舊榜
-        ("The 100 Best Songs of 2025", date(2026, 1, 10), True),         # 1 月收去年年終榜
+        ("The 100 Best Songs of 2025", date(2026, 1, 10), False),        # 跨年才出的去年年終榜也不收
         ("The 100 Best Songs of 2025", date(2026, 2, 10), False),
         ("Pink Floyd Box Set With Previously Unreleased Tracks", date(2026, 11, 1), False),
     ],
