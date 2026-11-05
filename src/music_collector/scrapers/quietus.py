@@ -19,6 +19,7 @@ FEED_URL = "https://thequietus.com/feed"
 
 class TheQuietusScraper(BaseScraper):
     name = "The Quietus"
+    list_index_urls = (FEED_URL,)  # 年度／月度單曲榜，見 lists.py
 
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []

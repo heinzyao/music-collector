@@ -21,6 +21,7 @@ from pathlib import Path
 from .backup import list_backups, save_backup, show_backup
 from .export import export_critics, export_csv, export_spotify_url
 from .stats import show_stats
+from .scrapers.lists import fetch_list_tracks
 from .config import DB_PATH
 from .db import (
     get_recent_tracks,
@@ -83,11 +84,17 @@ def collect_tracks(record_health: bool = True) -> list[Track]:
     乾跑模式傳 False，維持「僅擷取，不寫入」。
     """
 
-    async def _collect_all() -> list[tuple[str, list[Track], str | None]]:
+    async def _collect_all() -> list[tuple[str | None, list[Track], str | None]]:
         tasks = [
             asyncio.to_thread(_fetch_from_scraper, scraper) for scraper in ALL_SCRAPERS
         ]
-        return await asyncio.gather(*tasks)
+        # 年度／月度單曲榜另外跑、不計入健康檢查，免得榜單曲目蓋過日常擷取器故障
+        list_tasks = [
+            asyncio.to_thread(fetch_list_tracks, s) for s in ALL_SCRAPERS if getattr(s, "list_index_urls", ())
+        ]
+        results = await asyncio.gather(*tasks, *list_tasks)
+        scraped, listed = results[: len(tasks)], results[len(tasks):]
+        return list(scraped) + [(None, tracks, None) for tracks in listed]
 
     results = asyncio.run(_collect_all())
 
@@ -96,7 +103,7 @@ def collect_tracks(record_health: bool = True) -> list[Track]:
     seen_in_run: set[tuple[str, str]] = set()
 
     for scraper_name, tracks, error in results:
-        if record_health:
+        if record_health and scraper_name is not None:
             record_scrape_result(conn, scraper_name, len(tracks), error)
         for track in tracks:
             key = (track.artist.strip().lower(), track.title.strip().lower())

@@ -31,6 +31,7 @@ class BaseScraper(ABC):
     子類別需設定 name 屬性並實作 fetch_tracks()。
     """
     name: str = "base"
+    list_index_urls: tuple[str, ...] = ()  # 年度／月度單曲榜索引，見 lists.py
 
     _JS_BLOCK_INDICATORS = (
         "enable javascript",

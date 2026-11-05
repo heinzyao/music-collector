@@ -83,6 +83,7 @@ _ENTRY_RE = re.compile(
 
 class RollingStoneScraper(BaseScraper):
     name = "Rolling Stone"
+    list_index_urls = ("https://www.rollingstone.com/music/music-lists/",)  # 年度／月度單曲榜，見 lists.py
 
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []

@@ -24,6 +24,7 @@ URL = "https://consequence.net/category/cos-exclusive-features/top-song-of-the-w
 
 class ConsequenceScraper(BaseScraper):
     name = "Consequence"
+    list_index_urls = ("https://consequence.net/category/lists/",)  # 年度／月度單曲榜，見 lists.py
 
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []

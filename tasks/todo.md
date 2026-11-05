@@ -218,3 +218,14 @@ NME（最後新曲目 2026-08-23）與 Resident Advisor（2026-08-02）每天都
 - 採納：補「連續空白優先於 stale」與 LINE 通知 stale 分支的測試
 - 駁回：「缺 playlist-read-private scope」—— `SCOPE` 已含
 - 不改（範圍外／依需求）：Liked Songs 未計入；從未有曲目即 stale；日期為 UTC（與既有「最後活動」一致）
+
+## 2026-11-05 年度／月度單曲榜納入
+
+- [x] `scrapers/lists.py`：榜單發現（今年、單曲榜）＋通用項目解析＋分頁
+- [x] 六個來源設 `list_index_urls`，`main._fetch_from_scraper()` 附加榜單曲目
+- [x] 以 2025 實際年度榜驗證：Stereogum 50、Consequence 200、Pitchfork 100、Rolling Stone 100（2 頁）、Quietus 49（3 頁）、DIY 20，無誤配；今日 Quietus 10 月榜 6 首
+- [x] `tests/scrapers/test_lists.py`
+
+### Review
+- Opus review 採納：#1 榜單曲目不計入健康檢查（main 分開 gather）、#2 有 ALBUMS 段無 TRACKS 段整篇不收、#3 擋 this week／weekly、#5 只跟同網域連結、#8 分頁比對保留結尾 `/`
+- 不採納：#4 短榜被側欄蓋過、#6 `N’Roses` 類撇號（推測情境，Spotify 雙重驗證會擋錯配）；#7 榜單網址快取（DB 去重後只搜新曲目；洗版是使用者選的「照常進主歌單」）

@@ -145,6 +145,18 @@ CREATE TABLE tracks (
 | SoulBounce | RSS | 跳過 Events／Reviews／Relax in Paradise（訃聞）；藝人取標題開頭吻合的 tag（大小寫、重音、撇號摺疊後比對）；引號取曲名，比照 DIY 雙引號規則跳過專輯 |
 | When We Dip | RSS | 只收 Reviews／Premieres 分類；去掉 `Premiere:` 前綴後，藝人取標題開頭吻合的 tag（沿用 SoulBounce 摺疊比對）；引號取曲名，引號前有 album／EP／mix 或引號後緊接 EP／VA／Sampler 時跳過 |
 
+### 年度／月度單曲榜（`scrapers/lists.py`）
+
+2026-11-05 使用者要求納入，照常進主歌單、**只收單曲榜不收專輯榜**。擷取器設 `list_index_urls`
+（feed 或 HTML 索引頁），`main._fetch_from_scraper()` 會在 `fetch_tracks()` 之後附加榜單曲目。
+
+- 目前有設：Pitchfork、Stereogum、Consequence、Rolling Stone、The Quietus（月榜＋年終榜）、DIY。
+  查過沒有單曲榜：SPIN（Now Hear This 只有藝人名）、Consequence 月榜（專輯）、Bandcamp 月榜（專輯）、
+  Line of Best Fit／Aquarium Drunkard（只有專輯年終榜）、Slant／GvB／SoulBounce／When We Dip（查無）
+- 標題要同時有 songs/tracks/singles 與 best/top/of the year|month，且年份是今年（1 月另收去年）；週榜不收
+- 每則項目解析 h2/h3，只留數量最多的同一組標題樣式（擋側欄新聞）；The Quietus 月榜從 `TRACKS` 標題之後取；
+  分頁跟 `<link rel=next>` 或 Rolling Stone 頁內 JSON 的 `nextPageLink`（一頁 50 筆）
+
 ### 引號處理注意事項
 
 - Consequence：不可將直引號 `'` 放入引號匹配字元集，否則所有格會被誤判為開引號

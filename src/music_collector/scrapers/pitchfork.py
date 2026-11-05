@@ -23,6 +23,7 @@ URL = "https://pitchfork.com/reviews/best/tracks/"
 
 class PitchforkScraper(BaseScraper):
     name = "Pitchfork"
+    list_index_urls = ("https://pitchfork.com/features/lists-and-guides/",)  # 年度／月度單曲榜，見 lists.py
 
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []

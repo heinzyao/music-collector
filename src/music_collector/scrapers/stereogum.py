@@ -23,6 +23,7 @@ FEED_URL = "https://www.stereogum.com/feed/"
 
 class StereogumScraper(BaseScraper):
     name = "Stereogum"
+    list_index_urls = ("https://www.stereogum.com/category/lists/",)  # 年度／月度單曲榜，見 lists.py
 
     def fetch_tracks(self) -> list[Track]:
         tracks: list[Track] = []
